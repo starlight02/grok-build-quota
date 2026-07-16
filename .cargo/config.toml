@@ -1,0 +1,3 @@
+[build]
+# nightly 并行前端：多核 codegen，加速编译
+rustflags = ["-Zthreads=8"]

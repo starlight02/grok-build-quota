@@ -1,0 +1,4 @@
+max_width = 100
+indentation = 4
+newline_style = "Auto"
+attr_value_brace_style = "WhenRequired"

@@ -1,0 +1,17 @@
+{
+  "name": "grok-build-quota",
+  "private": true,
+  "scripts": {
+    "css": "unocss \"src/**/*.rs\" -o style/uno.css",
+    "css:watch": "unocss \"src/**/*.rs\" -o style/uno.css --watch",
+    "dev:css": "npm run css:watch",
+    "fmt": "leptosfmt src/*.rs && cargo fmt",
+    "fmt:check": "leptosfmt --check src/*.rs && cargo fmt --check",
+    "lint": "cargo clippy --all-targets -- -D warnings",
+    "check": "npm run fmt:check && npm run lint"
+  },
+  "devDependencies": {
+    "@unocss/cli": "^66.7.5",
+    "unocss": "^66.7.5"
+  }
+}

@@ -1,0 +1,106 @@
+[package]
+name = "grok-build-quota"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+leptos = { version = "0.8.20" }
+leptos_meta = { version = "0.8.6" }
+leptos_router = { version = "0.8.14" }
+leptos_actix = { version = "0.8.7", optional = true }
+actix-files = { version = "0.6.10", optional = true }
+actix-web = { version = "4.14", optional = true, features = ["macros", "compress-brotli", "compress-zstd"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+wasm-bindgen = "0.2.126"
+wasm-bindgen-futures = "0.4.76"
+js-sys = "0.3.103"
+web-sys = { version = "0.3", features = [
+  "Window",
+  "Document",
+  "Element",
+  "HtmlElement",
+  "HtmlInputElement",
+  "HtmlCanvasElement",
+  "CanvasRenderingContext2d",
+  "Blob",
+  "BlobPropertyBag",
+  "Url",
+  "Clipboard",
+  "ClipboardItem",
+  "Navigator",
+  "File",
+  "FileList",
+  "FileReader",
+  "DataTransfer",
+  "DragEvent",
+  "Event",
+  "EventTarget",
+  "DomRect",
+  "CssStyleDeclaration",
+  "console",
+] }
+futures = "0.3.32"
+base64 = { version = "0.22.1", optional = true }
+regex = { version = "1.13", optional = true }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls", "socks"], optional = true }
+mimalloc = { version = "0.1", optional = true }
+
+[features]
+csr = ["leptos/csr"]
+hydrate = ["leptos/hydrate"]
+ssr = [
+  "dep:actix-files",
+  "dep:actix-web",
+  "dep:leptos_actix",
+  "dep:reqwest",
+  "dep:regex",
+  "dep:base64",
+  "dep:mimalloc",
+  "leptos/ssr",
+  "leptos_meta/ssr",
+  "leptos_router/ssr",
+]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.dev]
+# macOS 跳过 dsymutil 打包 dSYM，链接更快
+split-debuginfo = "unpacked"
+
+# 服务端 release 优化（星光配方）：体积与运行效率
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = 'z'
+strip = true
+
+[package.metadata.leptos]
+output-name = "grok-build-quota"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+style-file = "style/uno.css"
+assets-dir = "assets"
+site-addr = "127.0.0.1:3737"
+reload-port = 3738
+end2end-cmd = "npx playwright test"
+end2end-dir = "end2end"
+browserquery = "defaults"
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"
