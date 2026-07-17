@@ -1,10 +1,10 @@
 name: Dependabot auto-merge
 
-# Dependabot PR 通过必需检查（Docker build）后自动合并。
+# Dependabot PR 通过必需检查（ci-ok）后自动合并。
 # 前提（需在仓库设置里手动开启，代码无法代劳）：
 #   1. Settings → General → 勾选 "Allow auto-merge"
-#   2. Settings → Branches → main 分支保护规则里，把 docker.yml 的 "Build" 设为必需状态检查
-# 有了必需检查后，--auto 只会在 Build 绿灯后才真正合并；major 破坏性变更若编译失败会卡住不合。
+#   2. Settings → Branches → main 分支保护规则里，把 ci.yml 的 "ci-ok" 设为必需状态检查
+# 有了必需检查后，--auto 只会在 ci-ok 绿灯后才真正合并；破坏性变更若门禁失败会卡住不合。
 
 on: pull_request
 
@@ -24,14 +24,7 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      # 先批准，满足分支保护里可能存在的 "require approval"
-      - name: Approve
-        run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 开启 auto-merge：GitHub 会等必需检查（Build）通过后自动 squash 合并并删分支
+      # 开启 auto-merge：GitHub 会等必需检查（ci-ok）通过后自动 squash 合并并删分支
       - name: Enable auto-merge
         run: gh pr merge --auto --squash --delete-branch "$PR_URL"
         env:

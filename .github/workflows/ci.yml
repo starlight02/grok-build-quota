@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 是否动了代码：action-only 的 PR 跳过 quality，走快速路径
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**/*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'uno.config.ts'
+              - 'src/**'
+              - 'style/**'
+
+  # workflow YAML 合法性：永远跑，快
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+
+  # 快速门禁：fmt:check + clippy + cargo check（不跑 wasm-opt，Docker 阶段完整验证）
+  quality:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install leptosfmt
+        uses: taiki-e/install-action@v2
+        with:
+          tool: leptosfmt
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: fmt:check
+        run: pnpm run fmt:check
+
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo check (ssr)
+        run: cargo check --no-default-features --features ssr
+
+  # 聚合门禁：永远运行，唯一的必需检查（绕开 skip 的 job 不能当必需检查的坑）
+  ci-ok:
+    needs: [changes, actionlint, quality]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify gates
+        run: |
+          if [ "${{ needs.actionlint.result }}" != "success" ]; then
+            echo "actionlint failed"; exit 1
+          fi
+          # quality 允许 skipped（action-only PR）或 success，其余视为失败
+          case "${{ needs.quality.result }}" in
+            success|skipped) ;;
+            *) echo "quality failed"; exit 1 ;;
+          esac
+          echo "all gates passed"
