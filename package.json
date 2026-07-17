@@ -6,8 +6,8 @@
     "css": "unocss \"src/**/*.rs\" -o style/uno.css",
     "css:watch": "unocss \"src/**/*.rs\" -o style/uno.css --watch",
     "dev:css": "pnpm run css:watch",
-    "fmt": "leptosfmt src/*.rs && cargo fmt",
-    "fmt:check": "leptosfmt --check src/*.rs && cargo fmt --check",
+    "fmt": "leptosfmt src && cargo fmt",
+    "fmt:check": "leptosfmt --check src && cargo fmt --check",
     "lint": "cargo clippy --all-targets -- -D warnings",
     "check": "pnpm run fmt:check && pnpm run lint"
   },
