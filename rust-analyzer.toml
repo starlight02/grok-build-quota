@@ -1,0 +1,4 @@
+# 编辑器保存时用 leptosfmt 先格式化 view! 宏，再交给 rustfmt
+# 需要 rust-analyzer 2024-06-10 或更新版本（该特性仍为 unstable）
+[rustfmt]
+overrideCommand = ["leptosfmt", "--stdin", "--rustfmt"]
