@@ -247,7 +247,6 @@ fn quota_display(r: &CheckResult) -> String {
     }
 }
 
-
 /// server fn 失败时的合成网络错误行
 fn network_error_result(name: String, err: String) -> CheckResult {
     CheckResult {
@@ -287,7 +286,6 @@ fn HomePage() -> impl IntoView {
     let retrying = RwSignal::new(Option::<String>::None);
     // 已落盘的文件名（导出 ZIP / 逐行下载后置位）：清空 guard 用
     let saved_files = RwSignal::new(HashSet::<String>::new());
-
 
     let on_files = move |file_list: web_sys::FileList| {
         // FileList is live; clearing the <input> empties it. Snapshot File handles first.
@@ -491,7 +489,9 @@ fn HomePage() -> impl IntoView {
 
     // 手动刷新「Token 过期」的行（自动刷新关闭时的补救入口）
     let refresh_expired = move |_| {
-        let Some(data) = summary.get_untracked() else { return };
+        let Some(data) = summary.get_untracked() else {
+            return;
+        };
         let expired: HashSet<String> = data
             .results
             .iter()
@@ -1131,7 +1131,7 @@ fn HomePage() -> impl IntoView {
                                         title=move || {
                                             format!(
                                                 "导出当前「{}」筛选下的 auth JSON（含刷新后 token）",
-                                                filter.get().export_label()
+                                                filter.get().export_label(),
                                             )
                                         }
                                     >
@@ -1352,15 +1352,15 @@ fn HomePage() -> impl IntoView {
                                                 let can_retry = matches!(
                                                     r.status,
                                                     AccountStatus::NetworkError
-                                                        | AccountStatus::Error
-                                                        | AccountStatus::AuthFailed
-                                                        | AccountStatus::RefreshFailed
-                                                        | AccountStatus::Expired
-                                                        | AccountStatus::RateLimited
+                                                    | AccountStatus::Error
+                                                    | AccountStatus::AuthFailed
+                                                    | AccountStatus::RefreshFailed
+                                                    | AccountStatus::Expired
+                                                    | AccountStatus::RateLimited
                                                 );
-                                                // 显式拷贝 Copy 闭包，避免 For children 被推断成 FnOnce
                                                 let on_retry = retry_one;
                                                 let on_download = download_one;
+                                                // 显式拷贝 Copy 闭包，避免 For children 被推断成 FnOnce
                                                 view! {
                                                     <div
                                                         class="group/row relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-black/[0.04] px-3.5 py-2 transition last:border-b-0 hover:bg-[#f2f2f7]/75 sm:grid-cols-[minmax(0,1.2fr)_72px_100px_minmax(0,1.35fr)] sm:gap-3"
@@ -1450,66 +1450,60 @@ fn HomePage() -> impl IntoView {
                                                             }}
                                                         </div>
                                                         <div class="absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1">
-                                                            {can_retry.then(|| {
-                                                                let fname = fname_retry.clone();
-                                                                view! {
-                                                                    <button
-                                                                        type="button"
-                                                                        class="grid h-6 w-6 place-items-center rounded-full border-0 bg-black/[0.045] p-0 text-[#6e6e73] opacity-100 outline-none transition hover:bg-black/[0.09] hover:text-[#1d1d1f] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-black/20 disabled:cursor-not-allowed disabled:opacity-40 sm:opacity-0 sm:group-hover/row:opacity-100"
-                                                                        class:opacity-100=move || {
-                                                                            retrying
-                                                                                .get()
-                                                                                .as_ref()
-                                                                                .is_some_and(|n| n == &fname_spin_a)
-                                                                        }
-                                                                        title=move || {
-                                                                            if retrying
-                                                                                .get()
-                                                                                .as_ref()
-                                                                                .is_some_and(|n| n == &fname_spin_b)
-                                                                            {
-                                                                                "重试中…".to_string()
-                                                                            } else {
-                                                                                "重试此账号".to_string()
+                                                            {can_retry
+                                                                .then(|| {
+                                                                    let fname = fname_retry.clone();
+                                                                    view! {
+                                                                        <button
+                                                                            type="button"
+                                                                            class="grid h-6 w-6 place-items-center rounded-full border-0 bg-black/[0.045] p-0 text-[#6e6e73] opacity-100 outline-none transition hover:bg-black/[0.09] hover:text-[#1d1d1f] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-black/20 disabled:cursor-not-allowed disabled:opacity-40 sm:opacity-0 sm:group-hover/row:opacity-100"
+                                                                            class:opacity-100=move || {
+                                                                                retrying.get().as_ref().is_some_and(|n| n == &fname_spin_a)
                                                                             }
-                                                                        }
-                                                                        aria-label="重试此账号"
-                                                                        disabled=move || {
-                                                                            retrying
-                                                                                .get()
-                                                                                .as_ref()
-                                                                                .is_some_and(|n| n == &fname_spin_c)
-                                                                                || checking.get()
-                                                                                || refreshing.get()
-                                                                        }
-                                                                        on:click=move |_| on_retry(fname.clone())
-                                                                    >
-                                                                        <svg
-                                                                            class=move || {
+                                                                            title=move || {
                                                                                 if retrying
                                                                                     .get()
                                                                                     .as_ref()
-                                                                                    .is_some_and(|n| n == &fname_spin_d)
+                                                                                    .is_some_and(|n| n == &fname_spin_b)
                                                                                 {
-                                                                                    "h-3 w-3 animate-spin"
+                                                                                    "重试中…".to_string()
                                                                                 } else {
-                                                                                    "h-3 w-3"
+                                                                                    "重试此账号".to_string()
                                                                                 }
                                                                             }
-                                                                            viewBox="0 0 24 24"
-                                                                            fill="none"
-                                                                            stroke="currentColor"
-                                                                            stroke-width="2.2"
-                                                                            stroke-linecap="round"
-                                                                            stroke-linejoin="round"
-                                                                            aria-hidden="true"
+                                                                            aria-label="重试此账号"
+                                                                            disabled=move || {
+                                                                                retrying.get().as_ref().is_some_and(|n| n == &fname_spin_c)
+                                                                                    || checking.get() || refreshing.get()
+                                                                            }
+                                                                            on:click=move |_| on_retry(fname.clone())
                                                                         >
-                                                                            <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
-                                                                            <path d="M21 3v6h-6"></path>
-                                                                        </svg>
-                                                                    </button>
-                                                                }
-                                                            })}
+                                                                            <svg
+                                                                                class=move || {
+                                                                                    if retrying
+                                                                                        .get()
+                                                                                        .as_ref()
+                                                                                        .is_some_and(|n| n == &fname_spin_d)
+                                                                                    {
+                                                                                        "h-3 w-3 animate-spin"
+                                                                                    } else {
+                                                                                        "h-3 w-3"
+                                                                                    }
+                                                                                }
+                                                                                viewBox="0 0 24 24"
+                                                                                fill="none"
+                                                                                stroke="currentColor"
+                                                                                stroke-width="2.2"
+                                                                                stroke-linecap="round"
+                                                                                stroke-linejoin="round"
+                                                                                aria-hidden="true"
+                                                                            >
+                                                                                <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+                                                                                <path d="M21 3v6h-6"></path>
+                                                                            </svg>
+                                                                        </button>
+                                                                    }
+                                                                })}
                                                             <button
                                                                 type="button"
                                                                 class="grid h-6 w-6 place-items-center rounded-full border-0 bg-black/[0.045] p-0 text-[#6e6e73] opacity-100 outline-none transition hover:bg-black/[0.09] hover:text-[#1d1d1f] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-black/20 sm:opacity-0 sm:group-hover/row:opacity-100"
@@ -1968,7 +1962,9 @@ fn download_blob(blob: &Blob, filename: &str) -> Result<(), String> {
         .map_err(|_| "anchor failed".to_string())?;
     let _ = anchor.set_attribute("href", &url);
     let _ = anchor.set_attribute("download", filename);
-    let body = document.body().ok_or_else(|| "body unavailable".to_string())?;
+    let body = document
+        .body()
+        .ok_or_else(|| "body unavailable".to_string())?;
     body.append_child(&anchor)
         .map_err(|_| "anchor attach failed".to_string())?;
     if let Some(el) = anchor.dyn_ref::<web_sys::HtmlElement>() {
