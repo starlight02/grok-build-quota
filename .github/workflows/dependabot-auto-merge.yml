@@ -20,7 +20,7 @@ jobs:
       # Dependabot 元数据（此处不做 update-type 过滤：按约定全部自动合并，含 major）
       - name: Fetch Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
