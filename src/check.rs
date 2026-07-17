@@ -51,11 +51,9 @@ impl AccountStatus {
             Self::Exhausted | Self::RateLimited | Self::SpendingLimited => "warn",
             Self::ChatDenied => "denied",
             Self::RefreshFailed => "warn",
-            Self::AuthFailed
-            | Self::Disabled
-            | Self::Expired
-            | Self::Invalid
-            | Self::Error => "bad",
+            Self::AuthFailed | Self::Disabled | Self::Expired | Self::Invalid | Self::Error => {
+                "bad"
+            }
             Self::NetworkError => "mute",
         }
     }
@@ -90,7 +88,6 @@ impl AccountPlan {
         )
     }
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CheckResult {
@@ -180,7 +177,10 @@ pub struct CheckSummary {
 pub const CHECK_WORKERS: usize = 8;
 
 #[server(CheckAuthFile, "/api")]
-pub async fn check_auth_file(file: AuthUpload, refresh: bool) -> Result<CheckResult, ServerFnError> {
+pub async fn check_auth_file(
+    file: AuthUpload,
+    refresh: bool,
+) -> Result<CheckResult, ServerFnError> {
     #[cfg(feature = "ssr")]
     {
         return Ok(ssr::check_one(ssr::shared_client(), file, refresh).await);
@@ -455,8 +455,7 @@ mod ssr {
         };
 
         // 401 且尚未 refresh 且有 refresh_token → 刷新后重探；自动刷新关闭时报 Token 过期
-        if probe.status_code == Some(401) && !did_refresh && !auth.refresh_token.trim().is_empty()
-        {
+        if probe.status_code == Some(401) && !did_refresh && !auth.refresh_token.trim().is_empty() {
             if !allow_refresh {
                 return CheckResult::make(
                     account,
@@ -513,7 +512,10 @@ mod ssr {
                     }
                 }
                 Err(err) => {
-                    refresh_notes.push(format!("探测 401 后刷新失败：{}", humanize_refresh_err(&err)));
+                    refresh_notes.push(format!(
+                        "探测 401 后刷新失败：{}",
+                        humanize_refresh_err(&err)
+                    ));
                 }
             }
         }
@@ -907,17 +909,16 @@ mod ssr {
     }
 
     fn parse_billing_payload(data: &Value) -> ParsedBilling {
-        let cfg = data
-            .get("config")
-            .filter(|c| c.is_object())
-            .unwrap_or(data);
+        let cfg = data.get("config").filter(|c| c.is_object()).unwrap_or(data);
         let mut out = ParsedBilling {
             credit: cfg.get("creditUsagePercent").and_then(billing_val),
             ..Default::default()
         };
         if let Some(arr) = cfg.get("productUsage").and_then(|v| v.as_array()) {
             for item in arr {
-                let Some(obj) = item.as_object() else { continue };
+                let Some(obj) = item.as_object() else {
+                    continue;
+                };
                 let name = obj
                     .get("product")
                     .and_then(|v| v.as_str())
@@ -976,10 +977,7 @@ mod ssr {
         {
             if resp.status().as_u16() == 200 {
                 if let Ok(v) = resp.json::<Value>().await {
-                    if let Some(s) = v
-                        .get("subscription_tier_display")
-                        .and_then(|x| x.as_str())
-                    {
+                    if let Some(s) = v.get("subscription_tier_display").and_then(|x| x.as_str()) {
                         let t = s.trim();
                         if !t.is_empty() {
                             tier_display = Some(t.to_string());
@@ -1071,7 +1069,6 @@ mod ssr {
 
         Some(out)
     }
-
 
     async fn probe_responses(
         client: &reqwest::Client,
@@ -1265,10 +1262,7 @@ mod ssr {
         if let Some(rt) = new_refresh {
             obj.insert("refresh_token".into(), Value::String(rt.to_string()));
             if obj.contains_key("oauth_refresh_token") {
-                obj.insert(
-                    "oauth_refresh_token".into(),
-                    Value::String(rt.to_string()),
-                );
+                obj.insert("oauth_refresh_token".into(), Value::String(rt.to_string()));
             }
         }
 
@@ -1300,7 +1294,8 @@ mod ssr {
             || lower.contains("revoked")
             || lower.contains("invalid refresh")
         {
-            "refresh_token 已失效（被吊销或轮换），请重新登录拿新 auth，或改用上次导出的新文件".into()
+            "refresh_token 已失效（被吊销或轮换），请重新登录拿新 auth，或改用上次导出的新文件"
+                .into()
         } else if lower.contains("missing_refresh_token") {
             "文件缺少 refresh_token，无法自动刷新".into()
         } else if lower.contains("network") {
@@ -1640,11 +1635,7 @@ mod ssr {
             return None;
         }
         let pct = (used / limit * 100.0).clamp(0.0, 100.0);
-        let quota = format!(
-            "月 ${:.2} / ${:.2}",
-            (limit - used) / 100.0,
-            limit / 100.0
-        );
+        let quota = format!("月 ${:.2} / ${:.2}", (limit - used) / 100.0, limit / 100.0);
         Some((pct, quota))
     }
 
@@ -1659,8 +1650,9 @@ mod ssr {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
         use std::path::PathBuf;
+
+        use super::*;
 
         #[test]
         fn detects_build_balance_exhausted() {
@@ -1806,11 +1798,7 @@ mod ssr {
             };
             let content = std::fs::read_to_string(&path).expect("sample auth");
             let file = AuthUpload {
-                filename: path
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
+                filename: path.file_name().unwrap().to_string_lossy().into_owned(),
                 content,
             };
             let result = actix_web::rt::System::new()
@@ -1832,7 +1820,10 @@ mod ssr {
                     .expect("refreshed should return updated_content");
                 let v: serde_json::Value = serde_json::from_str(c).expect("updated json");
                 let at = v.get("access_token").and_then(|x| x.as_str()).unwrap_or("");
-                let rt = v.get("refresh_token").and_then(|x| x.as_str()).unwrap_or("");
+                let rt = v
+                    .get("refresh_token")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
                 eprintln!("updated access_len={} refresh_len={}", at.len(), rt.len());
                 assert!(!at.is_empty(), "updated access_token empty");
                 assert!(!rt.is_empty(), "updated refresh_token empty");
