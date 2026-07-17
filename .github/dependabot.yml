@@ -1,0 +1,54 @@
+version: 2
+updates:
+  # Rust 依赖（Cargo.toml / Cargo.lock）
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      # minor/patch 打成一个低风险 PR；major 各自单独出 PR，便于 build 挂时定位
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # 前端工具链（根目录 package.json，pnpm 用 npm ecosystem 自动识别 pnpm-lock.yaml）
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # 端到端测试（end2end 是独立 pnpm 项目，自带 lockfile）
+  - package-ecosystem: "npm"
+    directory: "/end2end"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      e2e-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions 版本（.github/workflows/*.yml 里的 uses:）
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
