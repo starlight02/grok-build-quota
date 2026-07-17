@@ -875,11 +875,10 @@ fn HomePage() -> impl IntoView {
                         </div>
                     </section>
                 </div>
-
                 <footer class="flex shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3 pb-0.5 pt-1 text-center text-[10px] text-[#86868b]">
-                    <span>"检测方法对齐 check_accounts.py"</span>
-                    <span class="h-0.5 w-0.5 rounded-full bg-[#aeaeb2]"></span>
                     <span>"POST /v1/responses 探针"</span>
+                    <span class="h-0.5 w-0.5 rounded-full bg-[#aeaeb2]"></span>
+                    <span>"显示账号 / 状态 / 额度"</span>
                 </footer>
             </div>
         </div>

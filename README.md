@@ -17,13 +17,14 @@ Grok Build 额度批量检测工具
 ## 开发
 
 ```bash
-# 依赖
+# 依赖（packageManager 指定 pnpm；corepack 按该字段取版本）
+corepack enable
 cargo install cargo-leptos --locked
 rustup target add wasm32-unknown-unknown
-npm install
+pnpm install
 
 # 可选：生成 UnoCSS 产物
-npm run css
+pnpm css
 
 # 启动
 cargo leptos watch
@@ -46,13 +47,29 @@ Leptos 官方推荐工具链（工具链 nightly，组件已在 `rust-toolchain.
 - `leptosfmt`（`leptosfmt.toml`）：`view!` 宏 RSX 格式化，`cargo install leptosfmt --locked`
 
 ```bash
-npm run fmt        # 格式化（先 leptosfmt 后 cargo fmt）
-npm run fmt:check  # 只检查不写入
-npm run lint       # clippy，-D warnings 作为质量门
-npm run check      # fmt:check + lint
+pnpm fmt        # 格式化（先 leptosfmt 后 cargo fmt）
+pnpm fmt:check  # 只检查不写入
+pnpm lint       # clippy，-D warnings 作为质量门
+pnpm check      # fmt:check + lint
 ```
 
 注意顺序：必须先跑 `leptosfmt` 再跑 `cargo fmt`，反过来两者会在个别链式调用上互相打架。
+
+## Docker
+
+只需 **2 个基础镜像**（`rust:bookworm` 构建 + `debian:bookworm-slim` 运行）。
+
+```bash
+# 需要 BuildKit（默认开启）以复用 cargo 缓存
+docker compose up -d --build
+
+# 日志 / 停止
+docker compose logs -f
+docker compose down
+```
+
+**耗时预期**：首次会下载 nightly toolchain、编译 `cargo-leptos` 与依赖，偏慢；二次构建靠 cache mount，通常只重编本项目。
+
 
 ## 说明
 

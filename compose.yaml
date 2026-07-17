@@ -1,0 +1,24 @@
+services:
+  grok-build-quota:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grok-build-quota:local
+    container_name: grok-build-quota
+    ports:
+      # 显式发布 IPv4 / IPv6，避免只映到 0.0.0.0
+      - target: 3737
+        published: 3737
+        protocol: tcp
+        host_ip: "0.0.0.0"
+      - target: 3737
+        published: 3737
+        protocol: tcp
+        host_ip: "::"
+    environment:
+      # 未指定地址 → 进程内双栈 bind 0.0.0.0 + ::
+      LEPTOS_SITE_ADDR: 0.0.0.0:3737
+      LEPTOS_SITE_ROOT: site
+      LEPTOS_SITE_PKG_DIR: pkg
+      LEPTOS_OUTPUT_NAME: grok-build-quota
+    restart: unless-stopped

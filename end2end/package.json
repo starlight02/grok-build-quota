@@ -1,12 +1,11 @@
 {
   "name": "end2end",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {},
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "private": true,
+  "packageManager": "pnpm@11.13.0",
+  "scripts": {
+    "test": "playwright test"
+  },
   "devDependencies": {
     "@playwright/test": "^1.44.1",
     "@types/node": "^20.12.12",
