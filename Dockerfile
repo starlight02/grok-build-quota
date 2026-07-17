@@ -6,16 +6,29 @@
 FROM rust:bookworm AS builder
 WORKDIR /app
 
-# 系统依赖：binaryen=wasm-opt，clang/pkg-config=部分 native crate
+# 系统依赖：clang/pkg-config=部分 native crate（wasm-opt 见下方 binaryen 步）
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        binaryen \
         ca-certificates \
         clang \
         curl \
         pkg-config \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# binaryen(wasm-opt)：bookworm apt 版本(v108)太旧，吃不下新 nightly 产出的 WASM，
+# cargo-leptos 末步会报 "wasm-opt optimization failed"；改装官方 release
+ARG BINARYEN_VERSION=version_131
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) barch=x86_64 ;; \
+      arm64) barch=aarch64 ;; \
+      *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/binaryen-${BINARYEN_VERSION}-${barch}-linux.tar.gz" \
+      | tar -xz -C /usr/local --strip-components=1; \
+    wasm-opt --version
 
 # Node 24 LTS 官方二进制；pnpm 版本稍后按 packageManager 字段安装
 ARG NODE_VERSION=24.18.0
