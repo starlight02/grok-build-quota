@@ -21,4 +21,8 @@ style/uno.css
 end2end/playwright-report/
 end2end/test-results/
 
+# Local scratch, review notes, ad-hoc harnesses
+tmp/
+examples/
+
 .DS_Store
