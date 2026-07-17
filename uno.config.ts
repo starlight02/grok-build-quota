@@ -21,6 +21,9 @@ export default defineConfig({
     {
       getCSS: () => `
         *, ::before, ::after { box-sizing: border-box; }
+        /* UA 默认 button 带 border/padding/字体：全部清零，样式一律走工具类 */
+        button { border: 0; padding: 0; background-color: transparent; font: inherit; color: inherit; cursor: pointer; }
+        button:disabled { cursor: default; }
         html { -webkit-text-size-adjust: 100%; }
         html, body { margin: 0; padding: 0; }
         body { min-height: 100vh; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
