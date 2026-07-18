@@ -1,0 +1,10 @@
+services:
+  grok-build-quota:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grok-build-quota:local
+    container_name: grok-build-quota
+    ports:
+      - "3737:3737"
+    restart: unless-stopped
