@@ -1102,8 +1102,7 @@ fn HomePage() -> impl IntoView {
                                         class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[12px] border-0 bg-white/80 px-4 text-[13px] font-650 text-[#3a3a3c] shadow-[0_6px_16px_rgba(0,0,0,0.05),inset_0_1px_0_white] outline-none transition hover:-translate-y-0.5 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
                                         on:click=refresh_expired
                                         disabled=move || {
-                                            checking.get()
-                                                || refreshing.get()
+                                            checking.get() || refreshing.get()
                                                 || refreshable_count() == 0
                                         }
                                         title="用 refresh_token 换新：Token 过期 / 刷新失败 / 网络错误"
@@ -1431,123 +1430,123 @@ fn HomePage() -> impl IntoView {
                                                         </div>
                                                         <div class="col-span-2 flex min-w-0 items-center gap-2 sm:col-span-1">
                                                             <div class="min-w-0 flex-1">
-                                                            {if has_bar {
-                                                                view! {
-                                                                    <div class="min-w-0">
-                                                                        <div class="flex items-baseline justify-between gap-2 font-mono text-[11px] tabular-nums">
-                                                                            <span class="min-w-0 truncate font-650 text-[#3a3a3c]">
-                                                                                {quota_text.clone()}
-                                                                            </span>
-                                                                            <span class="shrink-0 text-[#8e8e93]">{pct_label}</span>
+                                                                {if has_bar {
+                                                                    view! {
+                                                                        <div class="min-w-0">
+                                                                            <div class="flex items-baseline justify-between gap-2 font-mono text-[11px] tabular-nums">
+                                                                                <span class="min-w-0 truncate font-650 text-[#3a3a3c]">
+                                                                                    {quota_text.clone()}
+                                                                                </span>
+                                                                                <span class="shrink-0 text-[#8e8e93]">{pct_label}</span>
+                                                                            </div>
+                                                                            <div
+                                                                                class="mt-1.5 flex w-full items-center gap-[3px]"
+                                                                                aria-hidden="true"
+                                                                            >
+                                                                                {(0..QUOTA_SEGMENTS)
+                                                                                    .map(|i| {
+                                                                                        let on = i < lit;
+                                                                                        let cls = if on {
+                                                                                            format!("h-[5px] min-w-0 flex-1 rounded-full {fill}")
+                                                                                        } else {
+                                                                                            "h-[5px] min-w-0 flex-1 rounded-full bg-black/[0.08]"
+                                                                                                .to_string()
+                                                                                        };
+                                                                                        view! { <span class=cls></span> }
+                                                                                    })
+                                                                                    .collect_view()}
+                                                                            </div>
                                                                         </div>
-                                                                        <div
-                                                                            class="mt-1.5 flex w-full items-center gap-[3px]"
-                                                                            aria-hidden="true"
-                                                                        >
-                                                                            {(0..QUOTA_SEGMENTS)
-                                                                                .map(|i| {
-                                                                                    let on = i < lit;
-                                                                                    let cls = if on {
-                                                                                        format!("h-[5px] min-w-0 flex-1 rounded-full {fill}")
-                                                                                    } else {
-                                                                                        "h-[5px] min-w-0 flex-1 rounded-full bg-black/[0.08]"
-                                                                                            .to_string()
-                                                                                    };
-                                                                                    view! { <span class=cls></span> }
-                                                                                })
-                                                                                .collect_view()}
-                                                                        </div>
-                                                                    </div>
-                                                                }
-                                                                    .into_any()
-                                                            } else {
-                                                                view! {
-                                                                    <span class="font-mono text-[11px] font-650 text-[#aeaeb2]">
-                                                                        {quota_text.clone()}
-                                                                    </span>
-                                                                }
-                                                                    .into_any()
-                                                            }}
+                                                                    }
+                                                                        .into_any()
+                                                                } else {
+                                                                    view! {
+                                                                        <span class="font-mono text-[11px] font-650 text-[#aeaeb2]">
+                                                                            {quota_text.clone()}
+                                                                        </span>
+                                                                    }
+                                                                        .into_any()
+                                                                }}
                                                             </div>
                                                             <div class="flex shrink-0 items-center gap-1">
-                                                            {can_retry
-                                                                .then(|| {
-                                                                    let fname = fname_retry.clone();
-                                                                    view! {
-                                                                        <button
-                                                                            type="button"
-                                                                            class="grid h-6 w-6 place-items-center rounded-full border-0 bg-black/[0.045] p-0 text-[#6e6e73] opacity-100 outline-none transition hover:bg-black/[0.09] hover:text-[#1d1d1f] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-black/20 disabled:cursor-not-allowed disabled:opacity-40 sm:opacity-0 sm:group-hover/row:opacity-100"
-                                                                            class:opacity-100=move || {
-                                                                                retrying.get().as_ref().is_some_and(|n| n == &fname_spin_a)
-                                                                            }
-                                                                            title=move || {
-                                                                                if retrying
-                                                                                    .get()
-                                                                                    .as_ref()
-                                                                                    .is_some_and(|n| n == &fname_spin_b)
-                                                                                {
-                                                                                    "重试中…".to_string()
-                                                                                } else {
-                                                                                    "重试此账号".to_string()
+                                                                {can_retry
+                                                                    .then(|| {
+                                                                        let fname = fname_retry.clone();
+                                                                        view! {
+                                                                            <button
+                                                                                type="button"
+                                                                                class="grid h-6 w-6 place-items-center rounded-full border-0 bg-black/[0.045] p-0 text-[#6e6e73] opacity-100 outline-none transition hover:bg-black/[0.09] hover:text-[#1d1d1f] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-black/20 disabled:cursor-not-allowed disabled:opacity-40 sm:opacity-0 sm:group-hover/row:opacity-100"
+                                                                                class:opacity-100=move || {
+                                                                                    retrying.get().as_ref().is_some_and(|n| n == &fname_spin_a)
                                                                                 }
-                                                                            }
-                                                                            aria-label="重试此账号"
-                                                                            disabled=move || {
-                                                                                retrying.get().as_ref().is_some_and(|n| n == &fname_spin_c)
-                                                                                    || checking.get() || refreshing.get()
-                                                                            }
-                                                                            on:click=move |_| on_retry(fname.clone())
-                                                                        >
-                                                                            <svg
-                                                                                class=move || {
+                                                                                title=move || {
                                                                                     if retrying
                                                                                         .get()
                                                                                         .as_ref()
-                                                                                        .is_some_and(|n| n == &fname_spin_d)
+                                                                                        .is_some_and(|n| n == &fname_spin_b)
                                                                                     {
-                                                                                        "h-3 w-3 animate-spin"
+                                                                                        "重试中…".to_string()
                                                                                     } else {
-                                                                                        "h-3 w-3"
+                                                                                        "重试此账号".to_string()
                                                                                     }
                                                                                 }
-                                                                                viewBox="0 0 24 24"
-                                                                                fill="none"
-                                                                                stroke="currentColor"
-                                                                                stroke-width="2.2"
-                                                                                stroke-linecap="round"
-                                                                                stroke-linejoin="round"
-                                                                                aria-hidden="true"
+                                                                                aria-label="重试此账号"
+                                                                                disabled=move || {
+                                                                                    retrying.get().as_ref().is_some_and(|n| n == &fname_spin_c)
+                                                                                        || checking.get() || refreshing.get()
+                                                                                }
+                                                                                on:click=move |_| on_retry(fname.clone())
                                                                             >
-                                                                                <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
-                                                                                <path d="M21 3v6h-6"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    }
-                                                                })}
-                                                            <button
-                                                                type="button"
-                                                                class="grid h-6 w-6 place-items-center rounded-full border-0 bg-black/[0.045] p-0 text-[#6e6e73] opacity-100 outline-none transition hover:bg-black/[0.09] hover:text-[#1d1d1f] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-black/20 sm:opacity-0 sm:group-hover/row:opacity-100"
-                                                                title="下载该账号的 auth JSON（含刷新后 token）"
-                                                                aria-label="下载此账号文件"
-                                                                on:click=move |_| on_download(fname_dl.clone())
-                                                            >
-                                                                <svg
-                                                                    class="h-3 w-3"
-                                                                    viewBox="0 0 24 24"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    stroke-width="2.2"
-                                                                    stroke-linecap="round"
-                                                                    stroke-linejoin="round"
-                                                                    aria-hidden="true"
+                                                                                <svg
+                                                                                    class=move || {
+                                                                                        if retrying
+                                                                                            .get()
+                                                                                            .as_ref()
+                                                                                            .is_some_and(|n| n == &fname_spin_d)
+                                                                                        {
+                                                                                            "h-3 w-3 animate-spin"
+                                                                                        } else {
+                                                                                            "h-3 w-3"
+                                                                                        }
+                                                                                    }
+                                                                                    viewBox="0 0 24 24"
+                                                                                    fill="none"
+                                                                                    stroke="currentColor"
+                                                                                    stroke-width="2.2"
+                                                                                    stroke-linecap="round"
+                                                                                    stroke-linejoin="round"
+                                                                                    aria-hidden="true"
+                                                                                >
+                                                                                    <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+                                                                                    <path d="M21 3v6h-6"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        }
+                                                                    })}
+                                                                <button
+                                                                    type="button"
+                                                                    class="grid h-6 w-6 place-items-center rounded-full border-0 bg-black/[0.045] p-0 text-[#6e6e73] opacity-100 outline-none transition hover:bg-black/[0.09] hover:text-[#1d1d1f] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-black/20 sm:opacity-0 sm:group-hover/row:opacity-100"
+                                                                    title="下载该账号的 auth JSON（含刷新后 token）"
+                                                                    aria-label="下载此账号文件"
+                                                                    on:click=move |_| on_download(fname_dl.clone())
                                                                 >
-                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                    <path d="m7 10 5 5 5-5"></path>
-                                                                    <path d="M12 15V3"></path>
-                                                                </svg>
-                                                            </button>
+                                                                    <svg
+                                                                        class="h-3 w-3"
+                                                                        viewBox="0 0 24 24"
+                                                                        fill="none"
+                                                                        stroke="currentColor"
+                                                                        stroke-width="2.2"
+                                                                        stroke-linecap="round"
+                                                                        stroke-linejoin="round"
+                                                                        aria-hidden="true"
+                                                                    >
+                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                        <path d="m7 10 5 5 5-5"></path>
+                                                                        <path d="M12 15V3"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                    </div>
                                                     </div>
                                                 }
                                             }
