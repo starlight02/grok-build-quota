@@ -1,0 +1,14 @@
+# Git 提交前门禁：强制格式化 + 代码质量检查，与 CI（.github/workflows/ci.yml）保持一致。
+# 安装：pnpm install 会经 prepare 脚本自动 `lefthook install`。
+pre-commit:
+  parallel: false
+  jobs:
+    # 1) 自动格式化：leptosfmt + cargo fmt 就地修复，并把修复回填到本次提交。
+    #    直接调用二进制（不经 pnpm run），避免 pnpm 的依赖预检在钩子内触发 install。
+    - name: fmt
+      glob: "*.rs"
+      run: leptosfmt src && cargo fmt
+      stage_fixed: true
+    # 2) 质量门禁：clippy 全目标，warning 即失败（等同 CI 的 quality 步骤）。
+    - name: clippy
+      run: cargo clippy --all-targets -- -D warnings

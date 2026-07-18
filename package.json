@@ -9,10 +9,12 @@
     "fmt": "leptosfmt src && cargo fmt",
     "fmt:check": "leptosfmt --check src && cargo fmt --check",
     "lint": "cargo clippy --all-targets -- -D warnings",
-    "check": "pnpm run fmt:check && pnpm run lint"
+    "check": "pnpm run fmt:check && pnpm run lint",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "@unocss/cli": "^66.7.5",
+    "lefthook": "^2.1.9",
     "unocss": "^66.7.5"
   }
 }
