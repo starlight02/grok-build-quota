@@ -20,7 +20,7 @@ pub enum AccountStatus {
     ChatDenied,
     Disabled,
     Expired,
-    /// access 已过期且 refresh_token 刷新失败（吊销/无效/网络）
+    /// access 已过期且 refresh_token 刷新失败（吊销/无效）
     RefreshFailed,
     Invalid,
     NetworkError,
@@ -364,12 +364,17 @@ mod ssr {
                     updated_content = serialize_auth(&auth);
                 }
                 Err(err) => {
+                    let is_net = err.to_ascii_lowercase().contains("network");
                     let human = humanize_refresh_err(&err);
                     if auth.access_token.trim().is_empty() {
                         return CheckResult::make(
                             account,
                             filename,
-                            AccountStatus::Invalid,
+                            if is_net {
+                                AccountStatus::NetworkError
+                            } else {
+                                AccountStatus::Invalid
+                            },
                             "--",
                             false,
                             None,
@@ -382,12 +387,16 @@ mod ssr {
                             None,
                         );
                     }
-                    // 过期且刷新失败 → 刷新失败（与单纯「过期未尝试」区分）
+                    // 过期且刷新失败：网络 → 网络错误；吊销/无效 → 刷新失败
                     if jwt_expired(&auth.access_token) {
                         return CheckResult::make(
                             account,
                             filename,
-                            AccountStatus::RefreshFailed,
+                            if is_net {
+                                AccountStatus::NetworkError
+                            } else {
+                                AccountStatus::RefreshFailed
+                            },
                             "--",
                             false,
                             None,
@@ -512,10 +521,27 @@ mod ssr {
                     }
                 }
                 Err(err) => {
-                    refresh_notes.push(format!(
-                        "探测 401 后刷新失败：{}",
-                        humanize_refresh_err(&err)
-                    ));
+                    let is_net = err.to_ascii_lowercase().contains("network");
+                    let human = humanize_refresh_err(&err);
+                    if is_net {
+                        return CheckResult::make(
+                            account,
+                            filename,
+                            AccountStatus::NetworkError,
+                            "--",
+                            false,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(join_notes(&human, &refresh_notes)),
+                            false,
+                            None,
+                        )
+                        .with_plan(plan);
+                    }
+                    refresh_notes.push(format!("探测 401 后刷新失败：{human}"));
                 }
             }
         }

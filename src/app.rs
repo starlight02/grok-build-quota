@@ -195,23 +195,21 @@ fn seg_class(active: bool) -> &'static str {
     }
 }
 
-fn group_thousands(n: i64) -> String {
-    let neg = n < 0;
-    let digits = n.abs().to_string();
-    let bytes = digits.as_bytes();
-    let len = bytes.len();
-    let mut out = String::with_capacity(len + len / 3);
-    for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (len - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(*b as char);
-    }
-    if neg { format!("-{out}") } else { out }
-}
-
+/// 紧凑数字：≥100 万→「X.XXM」，≥1000→「X.XXK」，其余原样。None→「--」。
 fn fmt_num(v: Option<i64>) -> String {
-    v.map(group_thousands).unwrap_or_else(|| "--".into())
+    let Some(n) = v else {
+        return "--".into();
+    };
+    let neg = n < 0;
+    let a = n.unsigned_abs() as f64;
+    let s = if a >= 1_000_000.0 {
+        format!("{:.2}M", a / 1_000_000.0)
+    } else if a >= 1_000.0 {
+        format!("{:.2}K", a / 1_000.0)
+    } else {
+        n.unsigned_abs().to_string()
+    };
+    if neg { format!("-{s}") } else { s }
 }
 
 fn quota_display(r: &CheckResult) -> String {
@@ -487,24 +485,31 @@ fn HomePage() -> impl IntoView {
         });
     };
 
-    // 手动刷新「Token 过期」的行（自动刷新关闭时的补救入口）
+    // 手动刷新可换新的行：Token 过期 / 刷新失败 / 网络错误（常驻入口，失败后仍可再点）
     let refresh_expired = move |_| {
         let Some(data) = summary.get_untracked() else {
             return;
         };
-        let expired: HashSet<String> = data
+        let targets: HashSet<String> = data
             .results
             .iter()
-            .filter(|r| r.status == AccountStatus::Expired)
+            .filter(|r| {
+                matches!(
+                    r.status,
+                    AccountStatus::Expired
+                        | AccountStatus::RefreshFailed
+                        | AccountStatus::NetworkError
+                )
+            })
             .map(|r| r.filename.clone())
             .collect();
-        if expired.is_empty() {
+        if targets.is_empty() {
             return;
         }
         let uploads: Vec<AuthUpload> = selected
             .get_untracked()
             .into_iter()
-            .filter(|f| expired.contains(&f.name))
+            .filter(|f| targets.contains(&f.name))
             .map(|f| AuthUpload {
                 filename: f.name,
                 content: f.content,
@@ -520,6 +525,7 @@ fn HomePage() -> impl IntoView {
         spawn_local(async move {
             let mut pending = stream::iter(uploads.into_iter().map(|upload| async move {
                 let name = upload.filename.clone();
+                // 手动刷新入口：强制 allow_refresh=true
                 (name, check_auth_file(upload, true).await)
             }))
             .buffer_unordered(CHECK_WORKERS);
@@ -566,7 +572,7 @@ fn HomePage() -> impl IntoView {
         }
     };
 
-    // 逐行重试：网络错误 / 失败行可单独再探一次（尊重自动刷新开关）
+    // 逐行重试：强制尝试刷新（用户显式点重试，不跟自动刷新开关）
     let retry_one = move |filename: String| {
         if checking.get_untracked() || refreshing.get_untracked() {
             return;
@@ -586,12 +592,11 @@ fn HomePage() -> impl IntoView {
             copy_msg.set(Some("找不到对应的本地文件内容".into()));
             return;
         };
-        let allow = auto_refresh.get_untracked();
         let fname = upload.filename.clone();
         retrying.set(Some(fname.clone()));
         error.set(None);
         spawn_local(async move {
-            let result = match check_auth_file(upload, allow).await {
+            let result = match check_auth_file(upload, true).await {
                 Ok(r) => r,
                 Err(err) => network_error_result(fname.clone(), err.to_string()),
             };
@@ -601,14 +606,21 @@ fn HomePage() -> impl IntoView {
         });
     };
 
-    // 「Token 过期」行数：驱动手动刷新按钮
-    let expired_count = move || {
+    // 可批量刷新的行数：驱动「刷新 Token」按钮计数（常驻，不因一次点击后归零而消失）
+    let refreshable_count = move || {
         summary
             .get()
             .map(|s| {
                 s.results
                     .iter()
-                    .filter(|r| r.status == AccountStatus::Expired)
+                    .filter(|r| {
+                        matches!(
+                            r.status,
+                            AccountStatus::Expired
+                                | AccountStatus::RefreshFailed
+                                | AccountStatus::NetworkError
+                        )
+                    })
                     .count()
             })
             .unwrap_or(0)
@@ -1085,44 +1097,51 @@ fn HomePage() -> impl IntoView {
                             </div>
                             <Show when=move || summary.get().is_some()>
                                 <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                                    <Show when=move || { expired_count() > 0 }>
-                                        <button
-                                            type="button"
-                                            class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[12px] border-0 bg-white/80 px-4 text-[13px] font-650 text-[#3a3a3c] shadow-[0_6px_16px_rgba(0,0,0,0.05),inset_0_1px_0_white] outline-none transition hover:-translate-y-0.5 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
-                                            on:click=refresh_expired
-                                            disabled=move || checking.get() || refreshing.get()
-                                            title="用 refresh_token 手动换新「Token 过期」的账号"
+                                    <button
+                                        type="button"
+                                        class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[12px] border-0 bg-white/80 px-4 text-[13px] font-650 text-[#3a3a3c] shadow-[0_6px_16px_rgba(0,0,0,0.05),inset_0_1px_0_white] outline-none transition hover:-translate-y-0.5 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+                                        on:click=refresh_expired
+                                        disabled=move || {
+                                            checking.get()
+                                                || refreshing.get()
+                                                || refreshable_count() == 0
+                                        }
+                                        title="用 refresh_token 换新：Token 过期 / 刷新失败 / 网络错误"
+                                    >
+                                        <svg
+                                            class=move || {
+                                                if refreshing.get() {
+                                                    "h-3.5 w-3.5 animate-spin"
+                                                } else {
+                                                    "h-3.5 w-3.5"
+                                                }
+                                            }
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            aria-hidden="true"
                                         >
-                                            <svg
-                                                class=move || {
-                                                    if refreshing.get() {
-                                                        "h-3.5 w-3.5 animate-spin"
+                                            <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+                                            <path d="M21 3v6h-6"></path>
+                                        </svg>
+                                        <span>
+                                            {move || {
+                                                if refreshing.get() {
+                                                    "刷新中".to_string()
+                                                } else {
+                                                    let n = refreshable_count();
+                                                    if n > 0 {
+                                                        format!("刷新 Token · {n}")
                                                     } else {
-                                                        "h-3.5 w-3.5"
+                                                        "刷新 Token".into()
                                                     }
                                                 }
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                aria-hidden="true"
-                                            >
-                                                <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
-                                                <path d="M21 3v6h-6"></path>
-                                            </svg>
-                                            <span>
-                                                {move || {
-                                                    if refreshing.get() {
-                                                        "刷新中".to_string()
-                                                    } else {
-                                                        format!("刷新 Token · {}", expired_count())
-                                                    }
-                                                }}
-                                            </span>
-                                        </button>
-                                    </Show>
+                                            }}
+                                        </span>
+                                    </button>
                                     <button
                                         type="button"
                                         class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[12px] border-0 bg-white/80 px-4 text-[13px] font-650 text-[#3a3a3c] shadow-[0_6px_16px_rgba(0,0,0,0.05),inset_0_1px_0_white] outline-none transition hover:-translate-y-0.5 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
@@ -1300,7 +1319,7 @@ fn HomePage() -> impl IntoView {
                                 }
                             >
                                 <div class="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-white/55 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] ring-1 ring-black/[0.04]">
-                                    <div class="hidden shrink-0 grid-cols-[minmax(0,1.2fr)_72px_100px_minmax(0,1.35fr)] items-center gap-3 rounded-t-[16px] border-b border-black/[0.05] bg-[#f5f5f7]/92 px-3.5 py-2 text-[10px] font-700 tracking-[0.12em] text-[#8e8e93] backdrop-blur-md sm:grid">
+                                    <div class="hidden shrink-0 grid-cols-[minmax(0,1.2fr)_56px_100px_minmax(0,1.9fr)] items-center gap-3 rounded-t-[16px] border-b border-black/[0.05] bg-[#f5f5f7]/92 px-3.5 py-2 text-[10px] font-700 tracking-[0.12em] text-[#8e8e93] backdrop-blur-md sm:grid">
                                         <div>"账号"</div>
                                         <div>"类型"</div>
                                         <div>"状态"</div>
@@ -1363,7 +1382,7 @@ fn HomePage() -> impl IntoView {
                                                 // 显式拷贝 Copy 闭包，避免 For children 被推断成 FnOnce
                                                 view! {
                                                     <div
-                                                        class="group/row relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-black/[0.04] px-3.5 py-2 transition last:border-b-0 hover:bg-[#f2f2f7]/75 sm:grid-cols-[minmax(0,1.2fr)_72px_100px_minmax(0,1.35fr)] sm:gap-3"
+                                                        class="group/row relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-black/[0.04] px-3.5 py-2 transition last:border-b-0 hover:bg-[#f2f2f7]/75 sm:grid-cols-[minmax(0,1.2fr)_56px_100px_minmax(0,1.9fr)] sm:gap-3"
                                                         data-filename=r.filename.clone()
                                                     >
                                                         <div class="min-w-0">
@@ -1410,7 +1429,8 @@ fn HomePage() -> impl IntoView {
                                                                 </Show>
                                                             </span>
                                                         </div>
-                                                        <div class="col-span-2 min-w-0 pr-20 sm:col-span-1">
+                                                        <div class="col-span-2 flex min-w-0 items-center gap-2 sm:col-span-1">
+                                                            <div class="min-w-0 flex-1">
                                                             {if has_bar {
                                                                 view! {
                                                                     <div class="min-w-0">
@@ -1448,8 +1468,8 @@ fn HomePage() -> impl IntoView {
                                                                 }
                                                                     .into_any()
                                                             }}
-                                                        </div>
-                                                        <div class="absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1">
+                                                            </div>
+                                                            <div class="flex shrink-0 items-center gap-1">
                                                             {can_retry
                                                                 .then(|| {
                                                                     let fname = fname_retry.clone();
@@ -1527,6 +1547,7 @@ fn HomePage() -> impl IntoView {
                                                                 </svg>
                                                             </button>
                                                         </div>
+                                                    </div>
                                                     </div>
                                                 }
                                             }
