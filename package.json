@@ -10,7 +10,7 @@
     "fmt:check": "leptosfmt --check src && cargo fmt --check",
     "lint": "cargo clippy --all-targets -- -D warnings",
     "check": "pnpm run fmt:check && pnpm run lint",
-    "prepare": "lefthook install"
+    "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && lefthook install || true"
   },
   "devDependencies": {
     "@unocss/cli": "^66.7.5",

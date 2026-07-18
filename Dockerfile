@@ -55,12 +55,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo install cargo-leptos --locked
 
 # pnpm（读 packageManager）→ UnoCSS
-COPY package.json pnpm-lock.yaml .npmrc uno.config.ts ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc uno.config.ts ./
 COPY src ./src
 RUN corepack install \
     && pnpm -v \
     && mkdir -p style \
-    && pnpm install --frozen-lockfile \
+    && pnpm install --frozen-lockfile --ignore-scripts \
     && pnpm run css \
     && rm -rf node_modules
 
