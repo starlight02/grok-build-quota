@@ -6,6 +6,12 @@ import zlib from "node:zlib";
 
 const BASE = process.env.GBQ_BASE_URL ?? "http://127.0.0.1:3737";
 
+function delay(ms: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+}
+
 // 最小 zip 解析：EOCD -> central directory -> inflateRaw，验证导出内容真实可读
 function readZipEntries(buf: Buffer): Map<string, Buffer> {
   let eocd = -1;
@@ -36,6 +42,31 @@ function readZipEntries(buf: Buffer): Map<string, Buffer> {
     off += 46 + nameLen + extraLen + commentLen;
   }
   return out;
+}
+
+function readZipEntryYear(buf: Buffer, target: string): number {
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 65536); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error("EOCD not found");
+  const count = buf.readUInt16LE(eocd + 10);
+  let off = buf.readUInt32LE(eocd + 16);
+  for (let n = 0; n < count; n++) {
+    if (buf.readUInt32LE(off) !== 0x02014b50) throw new Error("bad central header");
+    const nameLen = buf.readUInt16LE(off + 28);
+    const extraLen = buf.readUInt16LE(off + 30);
+    const commentLen = buf.readUInt16LE(off + 32);
+    const name = buf.subarray(off + 46, off + 46 + nameLen).toString("utf8");
+    if (name === target) {
+      return 1980 + (buf.readUInt16LE(off + 14) >> 9);
+    }
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  throw new Error(`ZIP entry not found: ${target}`);
 }
 
 type MockStatus =
@@ -175,6 +206,7 @@ test("status pills render as colored tags including 刷新失败", async ({ page
       status = "Ok";
       refreshed = true;
     }
+    await delay(250);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -213,6 +245,12 @@ test("status pills render as colored tags including 刷新失败", async ({ page
   await switchEl.click();
 
   await page.getByRole("button", { name: /开始检测/ }).click();
+  await expect(page.getByText("正在检测账号", { exact: true })).toBeVisible();
+  fs.mkdirSync(path.resolve(__dirname, "../../tmp/gbq-fixtures"), { recursive: true });
+  await page.screenshot({
+    path: path.resolve(__dirname, "../../tmp/gbq-fixtures/checking-state.png"),
+    fullPage: true,
+  });
 
   await expect(page.getByText("刷新失败").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("可用").first()).toBeVisible();
@@ -248,8 +286,8 @@ test("status pills render as colored tags including 刷新失败", async ({ page
   // 付费额度标「周」，Free 标「日」
   await expect(table.getByText("周 100% 已用").first()).toBeVisible();
   await expect(table.getByText("周 2% 已用").first()).toBeVisible();
-  await expect(table.getByText(/日 180,?000\s*\/\s*200,?000/).first()).toBeVisible();
-  await expect(table.getByText("50,000 / 200,000")).toHaveCount(0);
+  await expect(table.getByText(/日 180\.00K\s*\/\s*200\.00K/).first()).toBeVisible();
+  await expect(table.getByText("50.00K / 200.00K")).toHaveCount(0);
   // 关键：2% 已用 必须挂在「限流」而不是「额度耗尽」
   const rateRow = table.locator('div[data-filename="rate_limited.json"]');
   await expect(rateRow.getByText("限流", { exact: true })).toBeVisible();
@@ -321,6 +359,9 @@ test("手动刷新 Token + 清空 guard + 逐行下载", async ({ page }) => {
     const filename = m ? decodeURIComponent(m[1]) : "unknown.json";
     const wantsRefresh = /(?:^|&)refresh=true(?:&|$)/.test(post);
     const fixed = wantsRefresh && filename === "token_expired.json";
+    if (fixed) {
+      await delay(450);
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -361,6 +402,14 @@ test("手动刷新 Token + 清空 guard + 逐行下载", async ({ page }) => {
   const refreshBtn = page.getByRole("button", { name: /刷新 Token · 1/ });
   await expect(refreshBtn).toBeVisible();
   await refreshBtn.click();
+  await expect(page.getByRole("button", { name: "刷新中" })).toBeVisible();
+  await expect(page.getByText("正在刷新 Token", { exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "重试此账号" })).toBeHidden();
+  fs.mkdirSync(path.resolve(__dirname, "../../tmp/gbq-fixtures"), { recursive: true });
+  await page.screenshot({
+    path: path.resolve(__dirname, "../../tmp/gbq-fixtures/refreshing-state.png"),
+    fullPage: true,
+  });
   await expect(row.getByText("可用", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(row.getByText("已刷新", { exact: true })).toBeVisible();
   await expect(page.getByText(/已刷新 1 个 token/)).toBeVisible();
@@ -429,8 +478,10 @@ test("导出 ZIP 真实落盘：条目可读且含刷新后 token", async ({ pag
   expect(zipDownload.suggestedFilename()).toMatch(/^grok-auth-all-.+\.zip$/);
   const zipPath = await zipDownload.path();
   expect(zipPath).toBeTruthy();
-  const entries = readZipEntries(fs.readFileSync(zipPath!));
+  const zipBytes = fs.readFileSync(zipPath!);
+  const entries = readZipEntries(zipBytes);
   expect([...entries.keys()].sort()).toEqual(["ok.json", "token_expired.json"]);
+  expect(readZipEntryYear(zipBytes, "ok.json")).toBeGreaterThan(1980);
   const refreshedAuth = JSON.parse(entries.get("token_expired.json")!.toString("utf8"));
   expect(refreshedAuth.access_token).toBe("refreshed-access");
   expect(refreshedAuth.refresh_token).toBe("refreshed-rotated");
