@@ -60,21 +60,20 @@ COPY src ./src
 RUN corepack install \
     && pnpm -v \
     && mkdir -p style \
-    && pnpm install --frozen-lockfile --ignore-scripts \
-    && pnpm run css \
-    && rm -rf node_modules
+    && pnpm install --frozen-lockfile --ignore-scripts
 
-# Rust 源码 / 清单
+# Rust 源码 / 清单（css 产物在 build 步由 prebuild 生成，此处不先 rm node_modules）
 COPY Cargo.toml Cargo.lock leptosfmt.toml rustfmt.toml ./
 COPY assets ./assets
 
-# release：缓存 target，产物抽到 /out
+# release：pnpm build = UnoCSS + cargo leptos build --release；缓存 target
 ENV CARGO_TERM_COLOR=always \
     CARGO_INCREMENTAL=0
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    cargo leptos build --release \
+    pnpm run build \
+    && rm -rf node_modules \
     && mkdir -p /out \
     && cp target/release/grok-build-quota /out/ \
     && cp -a target/site /out/site

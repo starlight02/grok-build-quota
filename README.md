@@ -34,19 +34,26 @@ cargo install cargo-leptos --locked
 rustup target add wasm32-unknown-unknown
 pnpm install
 
-# 可选：生成 UnoCSS 产物
-pnpm css
+# 开发：UnoCSS watch + cargo leptos watch 并行（predev 会先生成一次 CSS）
+pnpm dev
 
-# 启动
-cargo leptos watch
+# 发布构建：先 UnoCSS，再 cargo leptos build --release
+pnpm build
 ```
 
 打开 http://127.0.0.1:3737
 
-需要走代理时：
+`pnpm dev` 会同时跑：
+
+- `css:watch`：扫描 `src/**/*.rs` 里的工具类，热更新 `style/uno.css`（cargo-leptos 再吃进站点 CSS）
+- `cargo leptos watch`：SSR / WASM 热重载
+
+单独只编样式：`pnpm css` / `pnpm css:watch`。
+
+需要走代理时（代理环境变量会传给 leptos 子进程）：
 
 ```bash
-HTTPS_PROXY=http://127.0.0.1:7890 cargo leptos watch
+HTTPS_PROXY=http://127.0.0.1:7890 pnpm dev
 ```
 
 ## 代码质量
@@ -93,6 +100,35 @@ docker compose down
 2. 服务端解析 token，按需刷新，探针 `/v1/responses` 并结合 `/billing` 判定状态与额度
 3. 响应只返回检测结果，**不返回 token**；刷新后的新 auth 仅在浏览器内存，导出 ZIP 时才落盘
 4. 图片导出用 Canvas 绘制结果表写入系统剪贴板，失败时回退下载 PNG
+
+## 部署模型与安全边界
+
+本工具默认按**自用 / 可信内网**设计，开箱即用，**不内置访问鉴权**。
+
+### Token 生命周期（确定）
+
+| 阶段 | Token 是否可见 | 是否落盘 |
+|------|----------------|----------|
+| 浏览器读取本地 auth JSON | 仅本机 | 否（读入内存） |
+| Server Function 请求体 | **服务端进程内存瞬时可见** | 否 |
+| 探针 / OAuth 刷新 | 服务端向 xAI 代发 | 否 |
+| 检测响应 | 不回传 token | — |
+| 刷新成功后的新 auth | 仅浏览器内存（`updated_content`） | 否，直到你点「导出 ZIP」 |
+
+结论：服务端**不写盘、不回传 token**，但在单次请求处理期间**一定见得到** access / refresh token。这不是「端到端加密」模型，而是「服务端代探、结果脱敏」模型。
+
+### 适合 / 不适合
+
+- **适合**：本机 `cargo leptos watch`、Docker 只绑 `127.0.0.1`、仅自己或完全信任的内网同事使用。
+- **不适合（当前版本）**：把实例裸奔在公网、给不信任的第三方当 SaaS。此时他人可对你的服务滥用上游额度探测，且若日志/崩溃转储配置不当，可能留下瞬时 token 痕迹。
+
+### 若需要分享给别人（文档建议，代码未强制）
+
+1. 用反向代理（Caddy / nginx / Cloudflare Access 等）加 HTTP 基本认证或 SSO，**不要**直接暴露 3737。
+2. 关闭或限制访问日志里的 request body；本应用本身不落 token 文件，但上游代理默认日志可能记 URL/状态码。
+3. 需要更强隔离时：每人自建实例，或仅在受控 VPN 内访问。
+
+上游错误文案与 code 集中在 `src/check/ssr/markers.rs`（常量表 + 观测日期注释）。xAI 改接口时优先改该文件并补单测。
 
 ## 许可证
 
