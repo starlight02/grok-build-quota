@@ -78,16 +78,20 @@ all = { level = "warn", priority = -1 }
 # macOS 跳过 dsymutil 打包 dSYM，链接更快
 split-debuginfo = "unpacked"
 
-# 服务端 release 优化（星光配方）：体积与运行效率
+# 服务端 release：体积优先（fat LTO + 单 CGU + strip）；速度靠 mold / Docker 层缓存
 [profile.release]
+opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
 
+# WASM 客户端：体积优先 z；继承 strip/abort；cargo-leptos 再跑 wasm-opt
 [profile.wasm-release]
 inherits = "release"
-opt-level = 'z'
+opt-level = "z"
+lto = true
+codegen-units = 1
 strip = true
 
 [package.metadata.leptos]

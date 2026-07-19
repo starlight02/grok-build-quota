@@ -90,6 +90,12 @@ docker compose down
 
 容器内进程双栈 bind（`0.0.0.0` + `::`），compose 显式发布 IPv4 / IPv6 到 `3737`。
 
+**构建策略（体积优先，速度不丢）**：
+
+- **产物**：服务端 fat LTO + strip；WASM `opt-level=z` + strip + `wasm-opt`（binaryen 131）
+- **速度**：`mold` 只链 Linux host；BuildKit 缓存 registry/git/target；`cargo-leptos` 钉版本
+- **层顺序**：`pnpm install` 不依赖 `src`，改 Rust 不会重装 Node 依赖
+
 **耗时预期**：首次会下载 nightly toolchain、编译 `cargo-leptos` 与依赖，偏慢；二次构建靠 cache mount，通常只重编本项目。
 
 预构建镜像发布在 GHCR（`ghcr.io/<owner>/grok-build-quota`），随 `main` 与 `v*` tag 自动推送。

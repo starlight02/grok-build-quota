@@ -1,23 +1,25 @@
 # syntax=docker/dockerfile:1.7
 #
-# 2 阶段：builder（Rust + Node 二进制）→ slim runtime
-# pnpm 版本由 package.json#packageManager 决定（corepack install）
+# 2 阶段：builder（Rust + Node）→ slim runtime
+# 层顺序原则：包管理 / 工具链尽量靠前；src 最晚 COPY，避免改业务代码重装依赖。
+# 体积：release fat LTO + strip + wasm-opt(z)；速度：mold 链接 + BuildKit cache mount。
 
 FROM rust:bookworm AS builder
 WORKDIR /app
 
-# 系统依赖：clang/pkg-config=部分 native crate（wasm-opt 见下方 binaryen 步）
+# 系统依赖：clang/pkg-config=部分 native crate；mold=链接加速（不增大产物）
+# wasm-opt 见下方 binaryen 步（bookworm apt 的 binaryen 过旧）
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         clang \
         curl \
+        mold \
         pkg-config \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# binaryen(wasm-opt)：bookworm apt 版本(v108)太旧，吃不下新 nightly 产出的 WASM，
-# cargo-leptos 末步会报 "wasm-opt optimization failed"；改装官方 release
+# binaryen(wasm-opt)：bookworm apt 版本(v108)太旧，吃不下新 nightly 产出的 WASM
 ARG BINARYEN_VERSION=version_131
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
@@ -49,34 +51,44 @@ COPY rust-toolchain.toml ./
 RUN rustup show \
     && rustup target add wasm32-unknown-unknown
 
-# cargo-leptos：缓存 registry/git，避免每次全量重装
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    cargo install cargo-leptos --locked
-
-# pnpm（读 packageManager）→ UnoCSS
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc uno.config.ts ./
-COPY src ./src
-RUN corepack install \
-    && pnpm -v \
-    && mkdir -p style \
-    && pnpm install --frozen-lockfile --ignore-scripts
-
-# Rust 源码 / 清单（css 产物在 build 步由 prebuild 生成，此处不先 rm node_modules）
-COPY Cargo.toml Cargo.lock leptosfmt.toml rustfmt.toml ./
-COPY assets ./assets
-
-# release：pnpm build = UnoCSS + cargo leptos build --release；缓存 target
+# 编译环境：增量关（Docker 缓存靠 target mount）；
+# mold / -Zthreads 写在 .cargo/config.toml 的 host target，避免污染 wasm 链接
 ENV CARGO_TERM_COLOR=always \
     CARGO_INCREMENTAL=0
+
+# cargo-leptos：钉版本，registry cache 可复用；避免 floating latest 反复重装
+ARG CARGO_LEPTOS_VERSION=0.3.7
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo install cargo-leptos --version "${CARGO_LEPTOS_VERSION}" --locked
+
+# ---------- Node deps（不依赖 src，改 .rs 不重装）----------
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN corepack install \
+    && pnpm -v \
+    && pnpm install --frozen-lockfile --ignore-scripts
+
+# ---------- Cargo 清单（先于 src，便于 registry 缓存命中）----------
+COPY Cargo.toml Cargo.lock leptosfmt.toml rustfmt.toml ./
+COPY .cargo ./.cargo
+
+# ---------- 源码 + 样式配置（改业务代码只从此层失效）----------
+COPY uno.config.ts ./
+COPY assets ./assets
+COPY src ./src
+
+# release：prebuild 生成 UnoCSS → cargo leptos build --release
+# target 缓存跨构建复用；产物抽到 /out 再进 runtime
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    pnpm run build \
+    mkdir -p style \
+    && pnpm run build \
     && rm -rf node_modules \
     && mkdir -p /out \
     && cp target/release/grok-build-quota /out/ \
-    && cp -a target/site /out/site
+    && cp -a target/site /out/site \
+    && ls -lh /out/grok-build-quota /out/site/pkg/*.wasm 2>/dev/null || true
 
 # ---------- runtime ----------
 FROM debian:bookworm-slim AS runtime
