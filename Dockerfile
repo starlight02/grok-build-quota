@@ -51,8 +51,8 @@ COPY rust-toolchain.toml ./
 RUN rustup show \
     && rustup target add wasm32-unknown-unknown
 
-# 编译环境：增量关（Docker 缓存靠 target mount）；
-# mold / -Zthreads 写在 .cargo/config.toml 的 host target，避免污染 wasm 链接
+# 编译环境：增量关（Docker 缓存靠 target mount）
+# mold 在 COPY .cargo 后以 RUN 追加到 config，不进仓库（避免 GHA 无 mold 失败）
 ENV CARGO_TERM_COLOR=always \
     CARGO_INCREMENTAL=0
 
@@ -71,6 +71,18 @@ RUN corepack install \
 # ---------- Cargo 清单（先于 src，便于 registry 缓存命中）----------
 COPY Cargo.toml Cargo.lock leptosfmt.toml rustfmt.toml ./
 COPY .cargo ./.cargo
+# mold 仅在 Docker builder 启用（GHA quality 未装 mold，勿写进仓库 .cargo/config.toml）
+RUN printf '%s\n' \
+    '' \
+    '[target.x86_64-unknown-linux-gnu]' \
+    'linker = "clang"' \
+    'rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Zthreads=8"]' \
+    '' \
+    '[target.aarch64-unknown-linux-gnu]' \
+    'linker = "clang"' \
+    'rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Zthreads=8"]' \
+    >> .cargo/config.toml
+
 
 # ---------- 源码 + 样式配置（改业务代码只从此层失效）----------
 COPY uno.config.ts ./

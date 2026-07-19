@@ -1,13 +1,3 @@
 [build]
 # nightly 并行前端：多核 codegen，加速编译（host + wasm 均受益）
 rustflags = ["-Zthreads=8"]
-
-# mold 仅绑 Linux host，不碰 wasm32（全局 -fuse-ld=mold 会搞挂 wasm-ld）
-# Docker builder 为 bookworm；本机 macOS 无此段，仍走默认链接器
-[target.x86_64-unknown-linux-gnu]
-linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Zthreads=8"]
-
-[target.aarch64-unknown-linux-gnu]
-linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Zthreads=8"]
