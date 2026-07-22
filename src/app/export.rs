@@ -76,7 +76,7 @@ pub(crate) async fn export_results_image(
     let usable = results.iter().filter(|r| r.usable).count();
     let _ = ctx.fill_text(
         &format!(
-            "共 {} 个账号 · 可用 {} · 生成自 grok-build-quota",
+            "共 {} 个账号 · 可用 {} · 生成自 starlight02/grok-build-quota",
             results.len(),
             usable
         ),
