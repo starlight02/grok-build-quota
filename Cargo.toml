@@ -47,7 +47,7 @@ web-sys = { version = "0.3", features = [
 ] }
 futures = "0.3.32"
 zip = { version = "8.6", default-features = false, features = ["deflate", "time"] }
-base64 = { version = "0.22.1", optional = true }
+base64 = { version = "0.23.0", optional = true }
 regex = { version = "1.13", optional = true }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "rustls", "socks"], optional = true }
 mimalloc = { version = "0.1", optional = true }
