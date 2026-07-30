@@ -68,3 +68,17 @@ jobs:
           cache-to: type=gha,mode=max
           # single-arch first: nightly + cargo-leptos build is heavy
           platforms: linux/amd64
+
+  deploy:
+    name: Deploy to Render
+    needs: build
+    # 只在 main 分支 push（含 workflow_dispatch）时触发，打 tag 不重复部署
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger Render deploy hook
+        run: |
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          echo "Render deploy hook responded with HTTP $status"
+          test "$status" -ge 200 -a "$status" -lt 300
