@@ -91,7 +91,7 @@ pub fn classify_probe(
     match status_code {
         Some(200) => {
             let note = if usage_percent.map(|p| p >= 99.5).unwrap_or(false) {
-                Some("周限额已打满，探测仍可用（窗口重置前可能随时被拒）".into())
+                Some("额度已打满，探测仍可用（窗口重置前可能随时被拒）".into())
             } else {
                 None
             };

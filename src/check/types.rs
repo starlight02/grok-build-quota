@@ -58,6 +58,28 @@ impl AccountStatus {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum QuotaPeriod {
+    Daily,
+    Weekly,
+    Monthly,
+    Rolling,
+    #[default]
+    Unknown,
+}
+
+impl QuotaPeriod {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Daily => "日",
+            Self::Weekly => "周",
+            Self::Monthly => "月",
+            Self::Rolling => "滚动窗口",
+            Self::Unknown => "窗口",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AccountPlan {
     Free,
@@ -106,7 +128,9 @@ pub struct CheckResult {
     pub limit_tokens: Option<i64>,
     pub remaining_requests: Option<i64>,
     pub limit_requests: Option<i64>,
-    /// 付费账号周限额已用百分比（creditUsagePercent 优先，Build 分项兜底）；Free 通常为 None
+    /// 上游返回的额度周期；未返回时为 Unknown，不猜测日/周。
+    pub quota_period: QuotaPeriod,
+    /// 上游额度池已用百分比（creditUsagePercent 优先，Build 分项兜底）；Free 通常为 None
     pub usage_percent: Option<f64>,
     pub http_status: Option<u16>,
     pub detail: Option<String>,
@@ -147,6 +171,7 @@ impl CheckResult {
             limit_tokens,
             remaining_requests,
             limit_requests,
+            quota_period: QuotaPeriod::Unknown,
             usage_percent: None,
             http_status,
             detail,

@@ -150,12 +150,7 @@ pub(crate) fn quota_display(r: &CheckResult) -> String {
     match (r.remaining_tokens, r.limit_tokens) {
         (Some(rem), Some(lim)) if lim > 0 => {
             let nums = format!("{} / {}", fmt_num(Some(rem)), fmt_num(Some(lim)));
-            // Free 是每日 token 窗口，标明「日」（周/月由服务端 quota 直出）
-            if r.plan == AccountPlan::Free {
-                format!("日 {nums}")
-            } else {
-                nums
-            }
+            format!("{} {nums}", r.quota_period.label())
         }
         _ => {
             if r.quota.trim().is_empty() {
@@ -182,6 +177,7 @@ pub(crate) fn network_error_result(name: String, err: String) -> CheckResult {
         limit_tokens: None,
         remaining_requests: None,
         limit_requests: None,
+        quota_period: crate::check::QuotaPeriod::Unknown,
         usage_percent: None,
         http_status: None,
         detail: Some(err),

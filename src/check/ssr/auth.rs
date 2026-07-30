@@ -277,7 +277,13 @@ pub fn normalize_base_url(base_url: &str) -> String {
     }
 }
 
-pub fn build_headers(auth: &AuthRecord) -> Result<HeaderMap, String> {
+pub fn build_headers(auth: &AuthRecord, cli_version: &str) -> Result<HeaderMap, String> {
+    let version = cli_version.trim();
+    let version = if version.is_empty() {
+        "0.2.93"
+    } else {
+        version
+    };
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -289,14 +295,17 @@ pub fn build_headers(auth: &AuthRecord) -> Result<HeaderMap, String> {
         HeaderName::from_static("accept"),
         HeaderValue::from_static("application/json"),
     );
-    headers.insert(USER_AGENT, HeaderValue::from_static("grok-cli/0.2.93"));
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_str(&format!("grok-cli/{version}")).map_err(|e| e.to_string())?,
+    );
     headers.insert(
         HeaderName::from_static("x-xai-token-auth"),
         HeaderValue::from_static("xai-grok-cli"),
     );
     headers.insert(
         HeaderName::from_static("x-grok-client-version"),
-        HeaderValue::from_static("0.2.93"),
+        HeaderValue::from_str(version).map_err(|e| e.to_string())?,
     );
     headers.insert(
         HeaderName::from_static("x-grok-client-identifier"),

@@ -6,6 +6,7 @@ pub(super) fn AccountsPanel(
     selected: RwSignal<Vec<super::SelectedFile>>,
     checking: RwSignal<bool>,
     auto_refresh: RwSignal<bool>,
+    force_refresh: RwSignal<bool>,
     on_files: Callback<FileList>,
     on_clear: Callback<()>,
     on_remove: Callback<String>,
@@ -207,38 +208,76 @@ pub(super) fn AccountsPanel(
                 </Show>
             </div>
 
-            // 自动刷新开关（默认关：刷新只写内存，避免原文件悄悄失效）
-            <div class="flex shrink-0 items-center justify-between gap-3 rounded-[14px] border border-black/5 bg-white/50 px-3 py-2.5 shadow-[inset_0_1px_0_white]">
-                <div class="min-w-0">
-                    <div class="text-[12px] font-650 text-[#3a3a3c]">"自动刷新 Token"</div>
-                    <div class="mt-0.5 text-[10.5px] font-500 leading-tight text-[#86868b]">
-                        "401/过期时自动换新；新文件记得导出落盘"
+            // Token 刷新策略（默认关：刷新只写内存，避免原文件悄悄失效）
+            <div class="flex shrink-0 flex-col gap-2 rounded-[14px] border border-black/5 bg-white/50 px-3 py-2.5 shadow-[inset_0_1px_0_white]">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="text-[12px] font-650 text-[#3a3a3c]">"自动刷新 Token"</div>
+                        <div class="mt-0.5 text-[10.5px] font-500 leading-tight text-[#86868b]">
+                            "仅在 401 或 access token 过期时换新"
+                        </div>
                     </div>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked=move || auto_refresh.get().to_string()
+                        aria-label="自动刷新 Token"
+                        title="开启后，检测到 401/过期时自动用 refresh_token 换新"
+                        disabled=move || checking.get()
+                        on:click=move |_| auto_refresh.update(|v| *v = !*v)
+                        class=move || {
+                            if auto_refresh.get() {
+                                "gbq-switch gbq-switch-on relative h-[22px] w-[38px] shrink-0 cursor-pointer outline-none transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-45"
+                            } else {
+                                "gbq-switch gbq-switch-off relative h-[22px] w-[38px] shrink-0 cursor-pointer outline-none transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-45"
+                            }
+                        }
+                    >
+                        <span class=move || {
+                            if auto_refresh.get() {
+                                "gbq-switch-thumb absolute left-[2px] top-[2px] h-[18px] w-[18px] translate-x-[16px] rounded-full transition-transform duration-200"
+                            } else {
+                                "gbq-switch-thumb absolute left-[2px] top-[2px] h-[18px] w-[18px] translate-x-0 rounded-full transition-transform duration-200"
+                            }
+                        }></span>
+                    </button>
                 </div>
-                <button
-                    type="button"
-                    role="switch"
-                    aria-checked=move || auto_refresh.get().to_string()
-                    aria-label="自动刷新 Token"
-                    title="开启后，检测到 401/过期时自动用 refresh_token 换新"
-                    disabled=move || checking.get()
-                    on:click=move |_| auto_refresh.update(|v| *v = !*v)
-                    class=move || {
-                        if auto_refresh.get() {
-                            "gbq-switch gbq-switch-on relative h-[22px] w-[38px] shrink-0 cursor-pointer outline-none transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-45"
-                        } else {
-                            "gbq-switch gbq-switch-off relative h-[22px] w-[38px] shrink-0 cursor-pointer outline-none transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-45"
+                <div class="h-px bg-black/5"></div>
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="text-[12px] font-650 text-[#3a3a3c]">"强制刷新 Token"</div>
+                        <div class="mt-0.5 text-[10.5px] font-500 leading-tight text-[#86868b]">
+                            "即使 access token 可用，也在检测前主动换新"
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked=move || force_refresh.get().to_string()
+                        aria-label="强制刷新 Token"
+                        title="开启后，只要文件包含 refresh_token，每次检测前都先换新"
+                        disabled=move || checking.get()
+                        on:click=move |_| force_refresh.update(|v| *v = !*v)
+                        class=move || {
+                            if force_refresh.get() {
+                                "gbq-switch gbq-switch-on relative h-[22px] w-[38px] shrink-0 cursor-pointer outline-none transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-45"
+                            } else {
+                                "gbq-switch gbq-switch-off relative h-[22px] w-[38px] shrink-0 cursor-pointer outline-none transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-45"
+                            }
                         }
-                    }
-                >
-                    <span class=move || {
-                        if auto_refresh.get() {
-                            "gbq-switch-thumb absolute left-[2px] top-[2px] h-[18px] w-[18px] translate-x-[16px] rounded-full transition-transform duration-200"
-                        } else {
-                            "gbq-switch-thumb absolute left-[2px] top-[2px] h-[18px] w-[18px] translate-x-0 rounded-full transition-transform duration-200"
-                        }
-                    }></span>
-                </button>
+                    >
+                        <span class=move || {
+                            if force_refresh.get() {
+                                "gbq-switch-thumb absolute left-[2px] top-[2px] h-[18px] w-[18px] translate-x-[16px] rounded-full transition-transform duration-200"
+                            } else {
+                                "gbq-switch-thumb absolute left-[2px] top-[2px] h-[18px] w-[18px] translate-x-0 rounded-full transition-transform duration-200"
+                            }
+                        }></span>
+                    </button>
+                </div>
+                <div class="text-[10px] font-500 leading-tight text-[#86868b]">
+                    "刷新后的新凭据只在浏览器内存，请及时下载或导出 ZIP。"
+                </div>
             </div>
 
             // 操作按钮（钉在左栏底部）

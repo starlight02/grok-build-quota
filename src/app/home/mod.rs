@@ -71,8 +71,9 @@ pub(crate) fn HomePage() -> impl IntoView {
     let summary = RwSignal::new(Option::<CheckSummary>::None);
     let copy_msg = RwSignal::new(Option::<String>::None);
     let filter = RwSignal::new(StatusFilter::All);
-    // 401/过期时是否自动刷新 token（默认关，避免静默换新后原文件失效）
+    // 401/过期时自动刷新；强制刷新则在检测前无条件换新（均默认关）。
     let auto_refresh = RwSignal::new(false);
+    let force_refresh = RwSignal::new(false);
     let refreshing = RwSignal::new(false);
     // 正在逐行重试的文件名（网络错误 / 失败行）
     let retrying = RwSignal::new(Option::<String>::None);
@@ -120,7 +121,7 @@ pub(crate) fn HomePage() -> impl IntoView {
                     let saved = saved_files.get_untracked();
                     s.results
                         .iter()
-                        .any(|r| r.refreshed && !saved.contains(&r.filename))
+                        .any(|r| r.updated_content.is_some() && !saved.contains(&r.filename))
                 })
                 .unwrap_or(false);
             if unsaved {
@@ -142,7 +143,7 @@ pub(crate) fn HomePage() -> impl IntoView {
                 let saved = saved_files.get_untracked();
                 s.results
                     .iter()
-                    .any(|r| r.refreshed && !saved.contains(&r.filename))
+                    .any(|r| r.updated_content.is_some() && !saved.contains(&r.filename))
             })
             .unwrap_or(false);
         if unsaved {
@@ -195,7 +196,11 @@ pub(crate) fn HomePage() -> impl IntoView {
     // 刷新只写浏览器内存：提示导出落盘，避免旧 RT 被轮换后二次失败
     let refresh_notice = move || {
         if let Some(s) = summary.get_untracked() {
-            let refreshed_n = s.results.iter().filter(|r| r.refreshed).count();
+            let refreshed_n = s
+                .results
+                .iter()
+                .filter(|r| r.updated_content.is_some())
+                .count();
             let refresh_fail_n = s
                 .results
                 .iter()
@@ -232,6 +237,7 @@ pub(crate) fn HomePage() -> impl IntoView {
         }));
 
         let allow = auto_refresh.get_untracked();
+        let force = force_refresh.get_untracked();
         let uploads = files
             .into_iter()
             .map(|f| AuthUpload {
@@ -244,7 +250,7 @@ pub(crate) fn HomePage() -> impl IntoView {
         spawn_local(async move {
             let mut pending = stream::iter(uploads.into_iter().map(|upload| async move {
                 let name = upload.filename.clone();
-                (name, check_auth_file(upload, allow).await)
+                (name, check_auth_file(upload, allow, force).await)
             }))
             .buffer_unordered(CHECK_WORKERS);
 
@@ -301,8 +307,8 @@ pub(crate) fn HomePage() -> impl IntoView {
         spawn_local(async move {
             let mut pending = stream::iter(uploads.into_iter().map(|upload| async move {
                 let name = upload.filename.clone();
-                // 手动刷新入口：强制 allow_refresh=true
-                (name, check_auth_file(upload, true).await)
+                // 手动刷新入口：目标本来就是异常行，允许按需刷新，不额外强制可用 RT。
+                (name, check_auth_file(upload, true, false).await)
             }))
             .buffer_unordered(CHECK_WORKERS);
 
@@ -372,7 +378,7 @@ pub(crate) fn HomePage() -> impl IntoView {
         retrying.set(Some(fname.clone()));
         error.set(None);
         spawn_local(async move {
-            let result = match check_auth_file(upload, true).await {
+            let result = match check_auth_file(upload, true, false).await {
                 Ok(r) => r,
                 Err(err) => network_error_result(fname.clone(), err.to_string()),
             };
@@ -524,6 +530,7 @@ pub(crate) fn HomePage() -> impl IntoView {
                         selected=selected
                         checking=checking
                         auto_refresh=auto_refresh
+                        force_refresh=force_refresh
                         on_files=on_files
                         on_clear=clear_files
                         on_remove=remove_file

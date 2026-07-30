@@ -11,7 +11,8 @@ pub fn shared_client() -> &'static reqwest::Client {
 fn build_client() -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(45))
-        .user_agent("grok-cli/0.2.93")
+        // xAI API 请求会在 build_headers 中设置动态 Grok CLI 版本；这里仅是通用兜底 UA。
+        .user_agent("grok-build-quota")
         .redirect(reqwest::redirect::Policy::limited(5));
 
     if let Ok(proxy) = std::env::var("HTTPS_PROXY").or_else(|_| std::env::var("HTTP_PROXY"))

@@ -19,6 +19,17 @@ pub fn header_i64(headers: &HeaderMap, name: &str) -> Option<i64> {
         .and_then(|s| s.parse::<i64>().ok())
 }
 
+pub fn header_string(headers: &HeaderMap, names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| {
+        headers
+            .get(*name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    })
+}
+
 pub fn json_string(value: &Value, key: &str) -> Option<String> {
     value
         .get(key)

@@ -6,13 +6,11 @@ use super::{
     auth::{AuthRecord, build_headers},
     http::{get_json, json_string},
 };
-use crate::check::AccountPlan;
-
-const MONTHLY_LIMIT_SUPERGROK: f64 = 15_000.0;
-const MONTHLY_LIMIT_SUPERGROK_HEAVY: f64 = 150_000.0;
+use crate::check::{AccountPlan, QuotaPeriod};
 
 #[derive(Default)]
 pub struct BillingUsage {
+    pub quota_period: QuotaPeriod,
     pub build_usage_percent: Option<f64>,
     pub credit_usage_percent: Option<f64>,
     pub api_usage_percent: Option<f64>,
@@ -23,12 +21,12 @@ pub struct BillingUsage {
 }
 
 impl BillingUsage {
-    /// 周限额总量（CPA「周限额」条）：402/耗尽由它决定，GrokBuild 分项只是参考
-    pub fn weekly_percent(&self) -> Option<f64> {
+    /// 当前额度池总用量：402/耗尽由它决定，GrokBuild 分项只是参考。
+    pub fn quota_percent(&self) -> Option<f64> {
         self.credit_usage_percent.or(self.build_usage_percent)
     }
 
-    /// 周用量分项（Api/Build/Chat），有内容时进 detail 解释总量构成
+    /// 当前周期用量分项（Api/Build/Chat），有内容时进 detail 解释总量构成。
     pub fn breakdown_note(&self) -> Option<String> {
         let mut parts = Vec::new();
         if let Some(p) = self.api_usage_percent {
@@ -43,11 +41,12 @@ impl BillingUsage {
         if parts.is_empty() {
             None
         } else {
-            Some(format!("周用量分解：{}", parts.join(" · ")))
+            Some(format!("周期用量分解：{}", parts.join(" · ")))
         }
     }
 
     fn merge_credit(&mut self, other: Self) {
+        self.quota_period = other.quota_period;
         self.credit_usage_percent = other.credit_usage_percent;
         self.build_usage_percent = other.build_usage_percent;
         self.api_usage_percent = other.api_usage_percent;
@@ -71,6 +70,28 @@ fn norm_label(value: &str) -> String {
         .collect()
 }
 
+fn parse_period(value: Option<&Value>) -> QuotaPeriod {
+    let raw = value
+        .and_then(|period| {
+            period
+                .as_str()
+                .or_else(|| period.get("type").and_then(Value::as_str))
+        })
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    if raw.contains("DAILY") || raw.ends_with("_DAY") {
+        QuotaPeriod::Daily
+    } else if raw.contains("WEEKLY") || raw.ends_with("_WEEK") {
+        QuotaPeriod::Weekly
+    } else if raw.contains("MONTHLY") || raw.ends_with("_MONTH") {
+        QuotaPeriod::Monthly
+    } else if raw.contains("ROLLING") {
+        QuotaPeriod::Rolling
+    } else {
+        QuotaPeriod::Unknown
+    }
+}
+
 pub fn classify_plan(
     tier_display: Option<&str>,
     subscription_tiers: Option<&str>,
@@ -79,22 +100,6 @@ pub fn classify_plan(
     credit_usage_percent: Option<f64>,
     monthly_limit: Option<f64>,
 ) -> AccountPlan {
-    if let Some(limit) = monthly_limit
-        && limit > 0.0
-    {
-        if (limit - MONTHLY_LIMIT_SUPERGROK_HEAVY).abs() < 0.5 {
-            return AccountPlan::SuperGrokHeavy;
-        }
-        if (limit - MONTHLY_LIMIT_SUPERGROK).abs() < 0.5 {
-            let display = tier_display.map(norm_label).unwrap_or_default();
-            if display.contains("lite") {
-                return AccountPlan::SuperGrokLite;
-            }
-            return AccountPlan::SuperGrok;
-        }
-        return AccountPlan::PaidOther;
-    }
-
     let display = tier_display.map(norm_label).unwrap_or_default();
     let tiers = subscription_tiers.map(norm_label).unwrap_or_default();
 
@@ -115,6 +120,9 @@ pub fn classify_plan(
     }
 
     if !tiers.is_empty() {
+        if matches!(tiers.as_str(), "free" | "grokfree" | "none" | "null") {
+            return AccountPlan::Free;
+        }
         if tiers.contains("heavy") {
             return AccountPlan::SuperGrokHeavy;
         }
@@ -124,15 +132,18 @@ pub fn classify_plan(
         if tiers.contains("supergrok") || tiers.contains("grokpro") || tiers.contains("pro") {
             return AccountPlan::SuperGrok;
         }
-        if !matches!(tiers.as_str(), "free" | "none" | "null") {
-            return AccountPlan::PaidOther;
-        }
+        return AccountPlan::PaidOther;
     }
 
     if has_product_usage {
-        return AccountPlan::SuperGrok;
+        return AccountPlan::PaidOther;
     }
     if credit_usage_percent.is_some() {
+        return AccountPlan::PaidOther;
+    }
+    // 月额度金额只用于确认这是付费套餐，不再用固定金额猜 Lite/Super/Heavy。
+    // xAI 调整 included 金额时仍能保持兼容。
+    if monthly_limit.is_some_and(|limit| limit > 0.0) {
         return AccountPlan::PaidOther;
     }
     if let Some(t) = jwt_tier {
@@ -162,10 +173,16 @@ fn billing_val(v: &Value) -> Option<f64> {
     None
 }
 
-/// billing 解析结果：周限额总量 + Api/Build/Chat 分项 + 月度美分额度
+/// billing 解析结果：当前周期总量 + Api/Build/Chat 分项 + 月度美分额度
 pub fn parse_billing_payload(data: &Value) -> BillingUsage {
     let cfg = data.get("config").filter(|c| c.is_object()).unwrap_or(data);
     let mut out = BillingUsage {
+        quota_period: parse_period(
+            cfg.get("currentPeriod")
+                .or_else(|| cfg.get("current_period"))
+                .or_else(|| cfg.get("usagePeriod"))
+                .or_else(|| cfg.get("usage_period")),
+        ),
         credit_usage_percent: cfg.get("creditUsagePercent").and_then(billing_val),
         ..Default::default()
     };
@@ -212,8 +229,9 @@ pub async fn fetch_plan(
     auth: &AuthRecord,
     base_url: &str,
     jwt_tier: Option<String>,
+    cli_version: &str,
 ) -> PlanInfo {
-    let Ok(headers) = build_headers(auth) else {
+    let Ok(headers) = build_headers(auth, cli_version) else {
         return PlanInfo {
             plan: AccountPlan::Unknown,
             tier_display: None,
@@ -253,13 +271,14 @@ pub async fn fetch_billing(
     client: &reqwest::Client,
     auth: &AuthRecord,
     base_url: &str,
+    cli_version: &str,
 ) -> Option<BillingUsage> {
-    let headers = build_headers(auth).ok()?;
+    let headers = build_headers(auth, cli_version).ok()?;
     let base = base_url.trim_end_matches('/');
 
     let mut out = BillingUsage::default();
 
-    // 周额度：/billing?format=credits 提供总量和产品分项。
+    // 周期额度：/billing?format=credits 提供总量、周期类型和产品分项。
     if let Some(value) = get_json(
         client,
         format!("{base}/billing?format=credits"),
@@ -302,10 +321,11 @@ mod tests {
         assert_eq!(p.build_usage_percent, Some(2.0));
         assert_eq!(p.chat_usage_percent, Some(2.0));
         assert!(p.has_product_usage);
+        assert_eq!(p.quota_period, QuotaPeriod::Weekly);
 
         let usage = p;
-        // 展示必须取周总量 100%，不能取 GrokBuild 分项 2%
-        assert_eq!(usage.weekly_percent(), Some(100.0));
+        // 展示必须取周期总量 100%，不能取 GrokBuild 分项 2%
+        assert_eq!(usage.quota_percent(), Some(100.0));
         let note = usage.breakdown_note().expect("breakdown note");
         assert!(note.contains("Api 96%"));
         assert!(note.contains("Build 2%"));
@@ -316,6 +336,44 @@ mod tests {
             build_usage_percent: Some(42.0),
             ..Default::default()
         };
-        assert_eq!(only_build.weekly_percent(), Some(42.0));
+        assert_eq!(only_build.quota_percent(), Some(42.0));
+    }
+
+    #[test]
+    fn parses_dynamic_quota_periods() {
+        for (raw, expected) in [
+            ("USAGE_PERIOD_TYPE_DAILY", QuotaPeriod::Daily),
+            ("USAGE_PERIOD_TYPE_WEEKLY", QuotaPeriod::Weekly),
+            ("USAGE_PERIOD_TYPE_MONTHLY", QuotaPeriod::Monthly),
+            ("USAGE_PERIOD_TYPE_ROLLING", QuotaPeriod::Rolling),
+            ("USAGE_PERIOD_TYPE_UNSPECIFIED", QuotaPeriod::Unknown),
+        ] {
+            let payload = serde_json::json!({
+                "config": {
+                    "creditUsagePercent": 12.0,
+                    "currentPeriod": {"type": raw}
+                }
+            });
+            assert_eq!(parse_billing_payload(&payload).quota_period, expected);
+        }
+    }
+
+    #[test]
+    fn plan_classification_does_not_depend_on_fixed_allowance_amounts() {
+        assert_eq!(
+            classify_plan(
+                Some("SuperGrok Heavy"),
+                None,
+                None,
+                true,
+                Some(10.0),
+                Some(999_999.0)
+            ),
+            AccountPlan::SuperGrokHeavy
+        );
+        assert_eq!(
+            classify_plan(None, None, None, false, None, Some(12_345.0)),
+            AccountPlan::PaidOther
+        );
     }
 }

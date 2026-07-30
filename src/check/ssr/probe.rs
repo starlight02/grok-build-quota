@@ -3,12 +3,14 @@
 use super::{
     auth::{AuthRecord, build_headers},
     http::{
-        error_text_parts_of, extract_error_message, header_i64, parse_exhausted, top_level_code,
+        error_text_parts_of, extract_error_message, header_i64, header_string, parse_exhausted,
+        top_level_code,
     },
     markers::{
         is_build_usage_balance_exhausted, is_chat_endpoint_denied, is_spending_limit_exhausted,
     },
 };
+use crate::check::QuotaPeriod;
 
 const PROBE_MODEL: &str = "grok-4.5";
 
@@ -27,6 +29,7 @@ pub enum ProbeCode {
 
 pub struct ProbeOutcome {
     pub status_code: Option<u16>,
+    pub quota_period: QuotaPeriod,
     pub remaining_tokens: Option<i64>,
     pub limit_tokens: Option<i64>,
     pub remaining_requests: Option<i64>,
@@ -36,12 +39,28 @@ pub struct ProbeOutcome {
     pub network_error: bool,
 }
 
+fn parse_header_period(value: Option<String>) -> QuotaPeriod {
+    let raw = value.unwrap_or_default().to_ascii_lowercase();
+    if raw.contains("day") || raw.contains("daily") {
+        QuotaPeriod::Daily
+    } else if raw.contains("week") || raw.contains("weekly") {
+        QuotaPeriod::Weekly
+    } else if raw.contains("month") || raw.contains("monthly") {
+        QuotaPeriod::Monthly
+    } else if raw.contains("rolling") {
+        QuotaPeriod::Rolling
+    } else {
+        QuotaPeriod::Unknown
+    }
+}
+
 pub async fn probe_responses(
     client: &reqwest::Client,
     auth: &AuthRecord,
     url: &str,
+    cli_version: &str,
 ) -> Result<ProbeOutcome, String> {
-    let headers = build_headers(auth)?;
+    let headers = build_headers(auth, cli_version)?;
     let body = serde_json::json!({
         "model": PROBE_MODEL,
         "input": "Reply exactly: OK",
@@ -61,6 +80,15 @@ pub async fn probe_responses(
     let header_remaining = header_i64(resp.headers(), "x-ratelimit-remaining-tokens");
     let header_req_limit = header_i64(resp.headers(), "x-ratelimit-limit-requests");
     let header_req_remaining = header_i64(resp.headers(), "x-ratelimit-remaining-requests");
+    let quota_period = parse_header_period(header_string(
+        resp.headers(),
+        &[
+            "x-ratelimit-period",
+            "x-ratelimit-window",
+            "x-ratelimit-limit-period",
+            "x-quota-period",
+        ],
+    ));
     let text = resp.text().await.unwrap_or_default();
 
     let mut remaining_tokens = header_remaining;
@@ -110,6 +138,7 @@ pub async fn probe_responses(
 
     Ok(ProbeOutcome {
         status_code: Some(status_code),
+        quota_period,
         remaining_tokens,
         limit_tokens,
         remaining_requests: header_req_remaining,
@@ -118,4 +147,34 @@ pub async fn probe_responses(
         code,
         network_error: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_rate_limit_period_headers() {
+        assert_eq!(
+            parse_header_period(Some("1 day".into())),
+            QuotaPeriod::Daily
+        );
+        assert_eq!(
+            parse_header_period(Some("weekly".into())),
+            QuotaPeriod::Weekly
+        );
+        assert_eq!(
+            parse_header_period(Some("calendar-month".into())),
+            QuotaPeriod::Monthly
+        );
+        assert_eq!(
+            parse_header_period(Some("rolling-7d".into())),
+            QuotaPeriod::Rolling
+        );
+        assert_eq!(
+            parse_header_period(Some("3600".into())),
+            QuotaPeriod::Unknown
+        );
+        assert_eq!(parse_header_period(None), QuotaPeriod::Unknown);
+    }
 }

@@ -16,6 +16,7 @@ mod client;
 mod http;
 mod markers;
 mod probe;
+mod version;
 
 use auth::{
     humanize_refresh_err, jwt_claim_tier, jwt_expired, normalize_base_url, resolve_auth_record,
@@ -28,14 +29,16 @@ use classify::{
 };
 pub use client::shared_client;
 use probe::probe_responses;
+use version::current_cli_version;
 
-use crate::check::{AccountPlan, AccountStatus, AuthUpload, CheckResult};
+use crate::check::{AccountPlan, AccountStatus, AuthUpload, CheckResult, QuotaPeriod};
 
-/// allow_refresh：是否自动用 refresh_token 换新（开关关闭时 401/过期只报 Token 过期）
+/// allow_refresh：401/过期时是否自动 refresh；force_refresh：有 RT 时检测前无条件 refresh。
 pub async fn check_one(
     client: &reqwest::Client,
     file: AuthUpload,
     allow_refresh: bool,
+    force_refresh: bool,
 ) -> CheckResult {
     let filename = file.filename.clone();
     let mut auth = match resolve_auth_record(&file) {
@@ -70,9 +73,12 @@ pub async fn check_one(
     let mut refresh_notes: Vec<String> = Vec::new();
     let mut updated_content: Option<String> = None;
 
-    // 缺 token / JWT 过期：自动刷新关闭时不静默换新，报 Token 过期等手动刷新
-    let need_refresh_now = auth.access_token.trim().is_empty() || jwt_expired(&auth.access_token);
-    if need_refresh_now && !allow_refresh && !auth.refresh_token.trim().is_empty() {
+    // 强制刷新优先；否则仅在缺 token / JWT 过期时按自动刷新开关处理。
+    let token_missing_or_expired =
+        auth.access_token.trim().is_empty() || jwt_expired(&auth.access_token);
+    let has_refresh_token = !auth.refresh_token.trim().is_empty();
+    let need_refresh_now = (force_refresh && has_refresh_token) || token_missing_or_expired;
+    if token_missing_or_expired && !allow_refresh && !force_refresh && has_refresh_token {
         return result_context.empty(
             AccountStatus::Expired,
             Some(
@@ -87,7 +93,11 @@ pub async fn check_one(
         match try_refresh(client, &mut auth).await {
             Ok(note) => {
                 did_refresh = true;
-                refresh_notes.push("已自动刷新 access_token".into());
+                refresh_notes.push(if force_refresh {
+                    "已强制刷新 access_token".into()
+                } else {
+                    "已自动刷新 access_token".into()
+                });
                 if let Some(n) = note {
                     refresh_notes.push(n);
                 }
@@ -137,13 +147,14 @@ pub async fn check_one(
 
     let base_url = normalize_base_url(&auth.base_url);
     let responses_url = format!("{}/responses", base_url.trim_end_matches('/'));
+    let cli_version = current_cli_version(client).await;
 
     // 账号类型：settings + user + JWT tier（驱动 Free/付费检测分流）
     let jwt_tier = jwt_claim_tier(&auth.access_token);
-    let mut info = fetch_plan(client, &auth, &base_url, jwt_tier).await;
+    let mut info = fetch_plan(client, &auth, &base_url, jwt_tier, &cli_version).await;
     let mut plan = info.plan;
 
-    let mut probe = match probe_responses(client, &auth, &responses_url).await {
+    let mut probe = match probe_responses(client, &auth, &responses_url, &cli_version).await {
         Ok(p) => p,
         Err(err) => {
             return result_context.empty_with_plan(
@@ -178,10 +189,16 @@ pub async fn check_one(
                     refresh_notes.push(n);
                 }
                 updated_content = serialize_auth(&auth);
-                info =
-                    fetch_plan(client, &auth, &base_url, jwt_claim_tier(&auth.access_token)).await;
+                info = fetch_plan(
+                    client,
+                    &auth,
+                    &base_url,
+                    jwt_claim_tier(&auth.access_token),
+                    &cli_version,
+                )
+                .await;
                 plan = info.plan;
-                match probe_responses(client, &auth, &responses_url).await {
+                match probe_responses(client, &auth, &responses_url, &cli_version).await {
                     Ok(p) => probe = p,
                     Err(err) => {
                         return result_context.empty_with_plan(
@@ -211,16 +228,21 @@ pub async fn check_one(
         }
     }
 
-    // 分流（对齐 check_accounts.py probe_strategy_for_plan）：
-    // Free → responses ratelimit 权威，不碰 billing；付费 → billing productUsage 主探
+    // responses rate-limit 与 billing 双源合并：billing 有周期额度时优先，
+    // 否则沿用 responses 的 token/request 窗口，兼容 Free 与付费策略调整。
     let mut remaining_tokens = probe.remaining_tokens;
     let mut limit_tokens = probe.limit_tokens;
     let mut usage_percent: Option<f64> = None;
+    let mut quota_period = probe.quota_period;
     let mut quota = format_quota(remaining_tokens, limit_tokens);
     let mut billing_note: Option<String> = None;
 
-    let want_billing = plan != AccountPlan::Free && probe.status_code != Some(401);
-    if want_billing && let Some(billing) = fetch_billing(client, &auth, &base_url).await {
+    // 所有套餐都尝试 billing：xAI 可能把 Free 迁移到统一额度池。
+    // billing 无数据时继续使用 responses rate-limit 作为降级。
+    let want_billing = probe.status_code != Some(401);
+    if want_billing
+        && let Some(billing) = fetch_billing(client, &auth, &base_url, &cli_version).await
+    {
         // billing 细化类型时保留 settings/user 标签（Lite/Heavy 消歧）
         let refined = classify_plan(
             info.tier_display.as_deref(),
@@ -233,15 +255,18 @@ pub async fn check_one(
         if refined != AccountPlan::Free && refined != AccountPlan::Unknown {
             plan = refined;
         }
-        // 周限额总量优先（CPA 周限额条）：402「usage balance exhausted」由总量
-        // 触发，GrokBuild 分项可能只有 2%，取分项会严重误报剩余
-        if let Some(pct) = billing.weekly_percent() {
+        // 当前周期总量优先：402「usage balance exhausted」由总量触发，
+        // GrokBuild 分项可能只有 2%，取分项会严重误报剩余。
+        if let Some(pct) = billing.quota_percent() {
             usage_percent = Some(pct);
+            if billing.quota_period != QuotaPeriod::Unknown {
+                quota_period = billing.quota_period;
+            }
             // 用百分比反推展示：剩余% / 100%
             let rem_pct = (100.0 - pct).clamp(0.0, 100.0);
             remaining_tokens = Some(rem_pct.round() as i64);
             limit_tokens = Some(100);
-            quota = format!("周 {:.0}% 已用", pct);
+            quota = format!("{} {:.0}% 已用", quota_period.label(), pct);
             billing_note = billing.breakdown_note();
         } else if let Some((pct, monthly_quota)) =
             monthly_quota_display(billing.monthly_used_cents, billing.monthly_limit_cents)
@@ -249,6 +274,7 @@ pub async fn check_one(
             // 月 included 美元额度：仅作周数据缺失时的 fallback；
             // 不塞进 remaining_tokens（那是 token/百分比语义，不是美元）
             usage_percent = Some(pct);
+            quota_period = QuotaPeriod::Monthly;
             remaining_tokens = None;
             limit_tokens = None;
             quota = monthly_quota;
@@ -258,18 +284,17 @@ pub async fn check_one(
 
     let status_code = probe.status_code;
 
-    // Free 额度是每日 token 窗口：标明「日」（付费周/月已在 billing 分支标注）
-    if plan == AccountPlan::Free && (remaining_tokens.is_some() || limit_tokens.is_some()) {
-        quota = format!("日 {quota}");
+    if usage_percent.is_none() && (remaining_tokens.is_some() || limit_tokens.is_some()) {
+        quota = format!("{} {quota}", quota_period.label());
     }
 
-    // 402 / Build balance 耗尽 = 周池已空；billing 延迟可能仍显示余量，
-    // 强制 100% 已用，避免状态「耗尽」与额度条「还剩 X%」拧巴
+    // 402 / Build balance 耗尽 = 当前额度池已空；billing 延迟可能仍显示余量，
+    // 强制 100% 已用，避免状态「耗尽」与额度条「还剩 X%」拧巴。
     if balance_exhausted_probe(status_code, probe.code) {
         usage_percent = Some(100.0);
         remaining_tokens = Some(0);
         limit_tokens = Some(100);
-        quota = "周 100% 已用".into();
+        quota = format!("{} 100% 已用", quota_period.label());
     }
 
     // 判定表对齐 check_accounts.py verdict：状态码 + probe code 驱动；
@@ -289,7 +314,7 @@ pub async fn check_one(
         detail = Some(refresh_notes.join(" · "));
     }
 
-    // 周用量分项（Api/Build/Chat）拼进 detail，解释总量构成
+    // 周期用量分项（Api/Build/Chat）拼进 detail，解释总量构成
     if let Some(note) = billing_note {
         detail = Some(match detail {
             Some(d) => format!("{d} · {note}"),
@@ -321,6 +346,7 @@ pub async fn check_one(
             updated_content,
         )
         .with_plan(plan);
+    result.quota_period = quota_period;
     result.usage_percent = usage_percent;
     result
 }
@@ -345,7 +371,7 @@ mod tests {
             content,
         };
         let result = actix_web::rt::System::new()
-            .block_on(async { check_one(shared_client(), file, true).await });
+            .block_on(async { check_one(shared_client(), file, true, false).await });
         eprintln!(
             "status={:?} label={} usable={} refreshed={} detail={:?} quota={} updated={}",
             result.status,
