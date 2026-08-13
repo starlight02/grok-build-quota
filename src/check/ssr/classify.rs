@@ -88,6 +88,17 @@ pub fn classify_probe(
     network_error: bool,
     usage_percent: Option<f64>,
 ) -> (AccountStatus, bool, Option<String>) {
+    // 探针模型失效优先于一切：这是运维配置问题而非账号状态，
+    // 明确提示更新 GBQ_PROBE_MODEL，避免把可用账号误判成账号级错误。
+    if probe_code == Some(ProbeCode::ModelUnavailable) {
+        return (
+            AccountStatus::Error,
+            false,
+            detail.or_else(|| {
+                Some("探针模型不可用，请设置环境变量 GBQ_PROBE_MODEL 指向当前有效模型".into())
+            }),
+        );
+    }
     match status_code {
         Some(200) => {
             let note = if usage_percent.map(|p| p >= 99.5).unwrap_or(false) {
@@ -225,6 +236,21 @@ pub fn join_notes(primary: &str, notes: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_unavailable_reports_actionable_error() {
+        let (status, usable, detail) = classify_probe(
+            Some(404),
+            Some(ProbeCode::ModelUnavailable),
+            &AccountPlan::Free,
+            Some("探针模型均不可用（已尝试 grok-4.6、grok-4.5）；设置环境变量 GBQ_PROBE_MODEL 指向当前有效模型即可恢复".into()),
+            false,
+            None,
+        );
+        assert_eq!(status, AccountStatus::Error);
+        assert!(!usable);
+        assert!(detail.unwrap().contains("GBQ_PROBE_MODEL"));
+    }
 
     #[test]
     fn classify_probe_keeps_rate_limit_distinct() {
