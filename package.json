@@ -17,9 +17,9 @@
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && lefthook install || true"
   },
   "devDependencies": {
-    "@unocss/cli": "^66.7.5",
-    "concurrently": "^10.0.4",
+    "@unocss/cli": "^66.8.1",
+    "concurrently": "^10.0.5",
     "lefthook": "^2.1.9",
-    "unocss": "^66.7.5"
+    "unocss": "^66.8.1"
   }
 }
